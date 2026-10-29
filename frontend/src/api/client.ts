@@ -26,6 +26,17 @@ export const api = {
 
 // ---------------------------------------------------------------- 类型
 
+export interface Holding {
+  symbol: string
+  name: string
+  qty: number
+  price: number
+  value: number
+  weight: number
+  contract: string
+  date?: string
+}
+
 export interface ParamSpec {
   key: string
   title: string
@@ -191,7 +202,7 @@ export interface BacktestPayload {
   fills: Fill[]
   fills_truncated: boolean
   fill_total: number
-  holdings_last: { symbol: string; name: string; qty: number; price: number; value: number; weight: number; contract: string }[]
+  holdings_last: Holding[]
   charts: ChartData[]
   diagnostics: Record<string, any>
   warnings: string[]
@@ -238,6 +249,12 @@ export interface Routing {
 
 // 回测结果缓存（同一个结果在对话、历史、报告页之间复用）
 const payloadCache = new Map<string, Promise<BacktestPayload>>()
+export function getHoldings(id: string, date: string): Promise<Holding[]> {
+  return api.get<Holding[]>(`/api/backtests/${id}/holdings?date=${date}`)
+}
+
+export const exportUrl = (id: string) => `/api/backtests/${id}/export`
+
 export function getBacktest(id: string): Promise<BacktestPayload> {
   if (!payloadCache.has(id)) {
     const p = api.get<BacktestPayload>(`/api/backtests/${id}`)

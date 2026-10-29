@@ -71,6 +71,8 @@ faiss_index/
 backtest_results/
 data/results/
 data/app.db*
+data/instance.json
+data/*.tmp
 reports/output/
 logs/
 *.log

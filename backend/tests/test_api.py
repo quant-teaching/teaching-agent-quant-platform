@@ -71,6 +71,79 @@ def test_portfolio_endpoint(client):
         assert client.get(f"/api/backtests/{c['result_id']}").status_code == 200
 
 
+def test_export_dataset_is_complete(client, monkeypatch):
+    import io
+    import zipfile
+
+    import pandas as pd
+
+    from api import serialize
+    from api.services import result_path
+
+    monkeypatch.setattr(serialize, "MAX_FILLS", 10)  # 报告里的成交明细被截断，导出仍应完整
+    p = client.post("/api/backtests", json={"strategy": "turtle_futures", "params": {"atr_period": 22}, "config": PERIOD}).json()
+    assert p["fills_truncated"] and len(p["fills"]) == 10 and p["fill_total"] > 10
+    r = client.get(f"/api/backtests/{p['id']}/export")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    assert "filename*=UTF-8''" in r.headers["content-disposition"]
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    names = set(z.namelist())
+    assert {"说明.txt", "量化指标.csv", "每日净值.csv", "交易记录.csv", "成交明细.csv", "持仓明细.csv"} <= names
+    readme = z.read("说明.txt").decode("utf-8-sig")
+    assert "不构成任何投资建议" in readme and "ATR 周期（atr_period）= 22（默认 20）" in readme
+    assert "A 股佣金" not in readme  # 期货回测只列期货的交易设置
+    assert z.read("量化指标.csv").startswith("\ufeff".encode())  # 带 BOM，Excel 打开不乱码
+    csv = lambda n: pd.read_csv(io.BytesIO(z.read(n)), encoding="utf-8-sig")  # noqa: E731
+    assert len(csv("成交明细.csv")) == p["fill_total"]
+    assert len(csv("交易记录.csv")) == len(p["trades"])
+    nav = csv("每日净值.csv")
+    assert len(nav) == len(p["series"]["dates"]) and nav["净值"].iloc[-1] == pytest.approx(p["series"]["nav"][-1])
+    m = csv("量化指标.csv").set_index("指标")
+    assert float(m.loc["夏普比率", "策略"]) == pytest.approx(p["metrics"]["sharpe"])
+    assert float(m.loc["年化收益率", "沪深300"]) == pytest.approx(p["benchmarks"]["000300"]["annual_return"])
+    pos = csv("持仓明细.csv")
+    last = pos[pos["日期"] == pos["日期"].max()]
+    assert sorted(last["代码"]) == sorted(h["symbol"] for h in p["holdings_last"])
+    # 删除记录时一并删除完整成交明细
+    fills_file = result_path(p["id"]).with_name(f"{p['id']}.fills.parquet")
+    assert fills_file.exists()
+    client.delete(f"/api/backtests/{p['id']}")
+    assert not fills_file.exists()
+    assert client.get(f"/api/backtests/{p['id']}/export").status_code == 404
+    assert client.get("/api/backtests/..%2F..%2Fx/export").status_code == 404
+
+
+def test_second_instance_on_same_data_dir_is_refused(client, monkeypatch):
+    import json
+    import time
+
+    from api import instance
+
+    path = instance._lock_path()
+    assert json.loads(path.read_text(encoding="utf-8"))["pid"]  # 当前实例已登记心跳
+    own = path.read_text(encoding="utf-8")
+    try:
+        # 另一个系统上的实例仍在运行 → 拒绝启动
+        path.write_text(json.dumps({"pid": 4242, "host": "WINDOWS-PC", "system": "Windows",
+                                    "started": time.time(), "heartbeat": time.time()}), encoding="utf-8")
+        with pytest.raises(instance.InstanceConflict, match="正被另一个平台实例使用"):
+            instance.acquire()
+        # 心跳过期（那个实例已经退出）→ 可以接管
+        path.write_text(json.dumps({"pid": 4242, "host": "WINDOWS-PC", "system": "Windows",
+                                    "started": 0, "heartbeat": time.time() - 120}), encoding="utf-8")
+        assert instance._alive(json.loads(path.read_text(encoding="utf-8"))) is False
+    finally:
+        path.write_text(own, encoding="utf-8")
+
+
+def test_sqlite_uses_truncate_journal(client):
+    from sqlalchemy import text
+
+    from api.db import engine
+    with engine().connect() as con:
+        assert con.execute(text("PRAGMA journal_mode")).scalar() == "truncate"
+
+
 def test_derived_strategy(client):
     r = client.post("/api/strategies/derived", json={"base": "turtle_futures", "name": "慢速海龟",
                                                      "params": {"entry_window": 55, "exit_window": 20}})

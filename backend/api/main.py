@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from typing import Any, Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,18 +23,23 @@ from quant.engine.config import BacktestConfig
 from quant.paths import ROOT_DIR
 from quant.strategies.base import ParamError
 
-from . import services
+from . import instance, services
 from .db import ChatMessage, ChatSession, engine
+from .export import export_zip
 from .serialize import clean
 from .settings import get_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    engine()
-    llm.seed_from_env()
-    yield
-    services.shutdown_pool()
+    instance.acquire()  # 同一个数据目录只允许一个实例，避免两个系统同时写数据库
+    try:
+        engine()
+        llm.seed_from_env()
+        yield
+    finally:
+        services.shutdown_pool()
+        instance.release()
 
 
 app = FastAPI(title="面向教学的智能体驱动量化算法策略平台", version="0.1.0", lifespan=lifespan)
@@ -151,6 +157,13 @@ def backtest(result_id: str, request: Request):
 @app.get("/api/backtests/{result_id}/holdings")
 def backtest_holdings(result_id: str, date: str):
     return services.holdings_on(result_id, date)
+
+
+@app.get("/api/backtests/{result_id}/export")
+def backtest_export(result_id: str):
+    name, data = export_zip(result_id)
+    disposition = f"attachment; filename=\"backtest-{result_id}.zip\"; filename*=UTF-8''{quote(name)}"
+    return Response(data, media_type="application/zip", headers={"Content-Disposition": disposition})
 
 
 @app.delete("/api/backtests/{result_id}")

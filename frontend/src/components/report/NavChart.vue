@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 净值曲线：策略（或组合）+ 子策略 + 基准指数，起点统一为 1
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import VChart from 'vue-echarts'
 import type { BacktestPayload } from '@/api/client'
 import { axisStyle, baseOption, hexAlpha, useChartTokens } from '@/charts/theme'
@@ -10,6 +10,18 @@ const props = withDefaults(defineProps<{ data: BacktestPayload; height?: number;
   height: 340,
   compact: false,
 })
+const emit = defineEmits<{ pick: [date: string] }>()
+const chart = ref<InstanceType<typeof VChart>>()
+
+// 点击绘图区任意位置：换算成最近的交易日
+function onClick(e: { offsetX: number; offsetY: number }) {
+  const c = chart.value
+  const pt = [e.offsetX, e.offsetY]
+  if (!c || !c.containPixel({ gridIndex: 0 }, pt)) return
+  const [i] = c.convertFromPixel({ gridIndex: 0 }, pt) as number[]
+  const date = props.data.series.dates[Math.round(i)]
+  if (date) emit('pick', date)
+}
 const tk = useChartTokens()
 
 const series = computed(() => {
@@ -88,5 +100,5 @@ const option = computed(() => {
 </script>
 
 <template>
-  <VChart :option="option" :style="{ height: height + 'px' }" autoresize :group="group" />
+  <VChart ref="chart" :option="option" :style="{ height: height + 'px' }" autoresize :group="group" @zr:click="onClick" />
 </template>

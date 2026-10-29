@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // 完整回测报告。compact 模式用于对话页右侧面板
-import { AlertTriangle, CalendarRange, Info, Layers, ShieldCheck } from 'lucide-vue-next'
-import { NDataTable, NEmpty, NTabPane, NTabs, NTag, type DataTableColumns } from 'naive-ui'
-import { computed, h } from 'vue'
-import type { BacktestPayload, BenchmarkStats } from '@/api/client'
+import { AlertTriangle, CalendarRange, Download, Info, Layers, ShieldCheck } from 'lucide-vue-next'
+import { NButton, NDataTable, NEmpty, NModal, NTabPane, NTabs, NTag, type DataTableColumns } from 'naive-ui'
+import { computed, h, ref, watch } from 'vue'
+import { exportUrl, type BacktestPayload, type BenchmarkStats } from '@/api/client'
 import { useCatalog } from '@/stores/catalog'
-import { int, money, num, paramValue, pct, signClass } from '@/utils/format'
+import { money, num, paramValue, pct, signClass } from '@/utils/format'
 import CorrelationHeatmap from './CorrelationHeatmap.vue'
 import DrawdownChart from './DrawdownChart.vue'
+import HoldingsPanel from './HoldingsPanel.vue'
 import MetricTiles from './MetricTiles.vue'
 import MonthlyHeatmap from './MonthlyHeatmap.vue'
 import NavChart from './NavChart.vue'
@@ -72,6 +73,19 @@ const compCols: DataTableColumns<any> = [
   { title: '', key: 'open', align: 'right', render: (r) => h('a', { href: `/report/${r.result_id}`, target: '_blank' }, '查看') },
 ]
 const div = computed(() => diag.value.diversification)
+
+// 持仓明细：组合回测没有逐日持仓
+const hasHoldings = computed(() => d.value.kind !== 'portfolio')
+const lastDate = () => d.value.series.dates[d.value.series.dates.length - 1]
+const holdDate = ref(lastDate())
+const pickDate = ref('')
+const pickOpen = ref(false)
+watch(() => d.value.id, () => { holdDate.value = lastDate() })
+function onPick(date: string) {
+  if (!hasHoldings.value) return
+  pickDate.value = date
+  pickOpen.value = true
+}
 </script>
 
 <template>
@@ -82,6 +96,9 @@ const div = computed(() => diag.value.diversification)
         <h2>{{ d.title }}</h2>
         <NTag v-if="d.kind === 'portfolio'" size="small" type="info" :bordered="false"><template #icon><Layers :size="13" /></template>多策略组合</NTag>
         <NTag v-else size="small" :bordered="false">{{ d.strategy.category === 'futures' ? '期货' : '股票' }} · {{ d.strategy.style }}</NTag>
+        <NButton tag="a" :href="exportUrl(d.id)" download size="small" secondary class="export" title="下载 CSV 数据集：每日净值、量化指标、交易记录、成交明细、持仓明细">
+          <template #icon><Download :size="14" /></template>导出数据
+        </NButton>
       </div>
       <div class="meta">
         <span><CalendarRange :size="14" /> {{ d.config.start }} ~ {{ d.config.end }}</span>
@@ -110,8 +127,8 @@ const div = computed(() => diag.value.diversification)
       <NTabPane name="overview" tab="收益与回撤">
         <section class="card card-pad block">
           <h3 class="section-title">净值曲线</h3>
-          <p class="section-sub">起点统一为 1.00；拖动下方滑块或滚轮缩放时间范围，点击图例显示 / 隐藏曲线</p>
-          <NavChart :data="d" :group="group" :height="compact ? 280 : 360" />
+          <p class="section-sub">起点统一为 1.00；拖动下方滑块或滚轮缩放时间范围，点击图例显示 / 隐藏曲线<template v-if="hasHoldings">；点击曲线上的某一天查看当日持仓</template></p>
+          <NavChart :data="d" :group="group" :height="compact ? 280 : 360" @pick="onPick" />
         </section>
         <section class="card card-pad block">
           <h3 class="section-title">回撤曲线</h3>
@@ -178,16 +195,9 @@ const div = computed(() => diag.value.diversification)
         <section class="card card-pad block">
           <TradesTable :trades="d.trades" :fills="d.fills" :fills-truncated="d.fills_truncated" :fill-total="d.fill_total" />
         </section>
-        <section v-if="d.holdings_last.length" class="card card-pad block">
-          <h3 class="section-title">期末持仓</h3>
-          <p class="section-sub">回测最后一个交易日的持仓；期货价值为名义市值（负数表示空头）</p>
-          <div class="holdings">
-            <div v-for="hd in d.holdings_last" :key="hd.symbol" class="holding">
-              <span>{{ hd.name }}</span>
-              <span class="num muted">{{ int(hd.qty) }}</span>
-              <b class="num">{{ pct(hd.weight, 1) }}</b>
-            </div>
-          </div>
+        <section v-if="hasHoldings" class="card card-pad block">
+          <h3 class="section-title">持仓明细</h3>
+          <HoldingsPanel v-model:date="holdDate" :result-id="d.id" :dates="d.series.dates" :futures="d.strategy.category === 'futures'" />
         </section>
       </NTabPane>
 
@@ -247,6 +257,10 @@ const div = computed(() => diag.value.diversification)
 
     <div v-for="n in d.notes" :key="n" class="note"><Info :size="14" /> {{ n }}</div>
     <div class="disclaimer">⚠️ 本结果为教学回测模拟，历史回测不代表未来表现，不构成任何投资建议。</div>
+
+    <NModal v-model:show="pickOpen" preset="card" title="当日持仓" :bordered="false" style="width: 760px; max-width: calc(100vw - 32px)">
+      <HoldingsPanel v-model:date="pickDate" :result-id="d.id" :dates="d.series.dates" :futures="d.strategy.category === 'futures'" />
+    </NModal>
   </div>
 </template>
 
@@ -255,6 +269,7 @@ const div = computed(() => diag.value.diversification)
 .head h2 { font-size: 20px; font-weight: 650; margin: 0; }
 .compact .head h2 { font-size: 17px; }
 .title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.export { margin-left: auto; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 6px; font-size: 12.5px; color: var(--text-3); }
 .meta span { display: inline-flex; align-items: center; gap: 5px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -284,9 +299,6 @@ const div = computed(() => diag.value.diversification)
 .div-stats .kv span { color: var(--text-2); }
 .verdict { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 13px; padding: 8px 12px; border-radius: 8px; background: var(--surface-3); color: var(--text-2); }
 .verdict.good { background: var(--primary-soft); color: var(--primary-ink); }
-.holdings { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; }
-.holding { display: grid; grid-template-columns: 1fr auto 64px; gap: 10px; font-size: 13px; padding: 5px 0; border-bottom: 1px solid var(--border); }
-.holding b { text-align: right; }
 .note { display: flex; gap: 6px; align-items: flex-start; font-size: 12.5px; color: var(--text-3); }
 .note svg { margin-top: 3px; flex-shrink: 0; }
 .disclaimer { font-size: 12.5px; color: var(--text-3); padding: 10px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }

@@ -45,7 +45,7 @@ const tradeRows = computed(() => [...props.trades].reverse())
       </NRadioGroup>
       <span class="muted hint">
         <template v-if="view === 'trades'">一笔完整交易 = 一个标的从开仓到完全平仓；净盈亏已扣除手续费，成交价已含滑点</template>
-        <template v-else>信号在前一日收盘生成、当日开盘成交{{ fillsTruncated ? '；仅显示前 5000 笔' : '' }}</template>
+        <template v-else>信号在前一日收盘生成、当日开盘成交{{ fillsTruncated ? '；页面仅显示前 5000 笔，完整明细请用「导出数据」下载' : '' }}</template>
       </span>
     </div>
     <NDataTable v-if="view === 'trades'" :columns="tradeCols" :data="tradeRows" :pagination="pagination" size="small" :scroll-x="980" :bordered="false" striped />

@@ -27,7 +27,7 @@ from quant.backtest import run_backtest  # noqa: E402
 from quant.data.loader import load_bars  # noqa: E402
 from quant.engine.config import BacktestConfig  # noqa: E402
 from quant.engine.engine import run_engine  # noqa: E402
-from quant.paths import BACKEND_DIR, DATA_DIR, ROOT_DIR  # noqa: E402
+from quant.paths import BACKEND_DIR, ROOT_DIR  # noqa: E402
 from quant.portfolio.portfolio import run_portfolio  # noqa: E402
 from quant.strategies.base import load_all  # noqa: E402
 
@@ -101,6 +101,9 @@ TEST_NAMES = {
     "test_backtest_lifecycle": "回测创建、查询、持仓、列表、删除",
     "test_backtest_errors_are_readable": "回测错误返回可读的中文提示",
     "test_portfolio_endpoint": "组合回测接口，子策略结果一并存档",
+    "test_export_dataset_is_complete": "导出回测数据集：成交明细超过页面上限时仍完整、指标与报告一致、附免责声明",
+    "test_second_instance_on_same_data_dir_is_refused": "同一数据目录拒绝启动第二个实例（防止 Windows 与 WSL 同时写库）",
+    "test_sqlite_uses_truncate_journal": "SQLite 使用 TRUNCATE 日志模式，避免 Windows 磁盘上并发写入偶发失败",
     "test_derived_strategy": "衍生策略的创建、重名校验、回测与删除",
     "test_provider_crud_and_routing": "模型接口增删改、Key 掩码、主备顺序校验",
     "test_agent_tool_loop_disclaimer_and_fact_check": "智能体多轮工具调用、参数前后对比、编造数字被识别、强制免责、会话参数延续",
@@ -299,13 +302,20 @@ AGENT_CASES = [
     ("赛题场景 3：查看算法教学说明", "给我讲下布林带股票策略原理"),
     ("回测解读", "使用双均线策略，对沪深 A 股回测"),
     ("优化建议与实际验证", "胜率为什么这么低"),
+    ("对话修改参数", "把海龟策略的 ATR 周期改成 30"),
+    ("对话生成衍生策略并与原版对比", "保存成衍生策略"),
+    ("赛题示例：两个策略等权组合", "把动量选股 + 行业轮动"),
+    ("获取回测原始数据", "每日净值和交易记录原始数据"),
+    ("教学问答：海龟交易法则适合什么行情", "海龟交易法则原理是什么"),
     ("合规：拒绝实盘投资建议", "应该买贵州茅台还是宁德时代"),
 ]
 
 
 def section_agent(out: list[str]) -> None:
     import sqlite3
-    db = DATA_DIR / "app.db"
+
+    from api.settings import get_settings
+    db = Path(get_settings().database_url.removeprefix("sqlite:///"))
     out += ["## 6. 智能体对话测试", "",
             "以下为平台中真实执行的对话（从本地数据库导出），展示智能体调用了哪些工具、事实核验结果以及回复原文。", ""]
     if not db.exists():

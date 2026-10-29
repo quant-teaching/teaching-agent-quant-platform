@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, Text
+from sqlalchemy import Column, Text, event
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 from .settings import get_settings
@@ -92,7 +92,12 @@ def engine():
         if s.database_url.startswith("sqlite:///"):
             from pathlib import Path
             Path(s.database_url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
-        _engine = create_engine(s.database_url, connect_args={"check_same_thread": False})
+        # timeout：等锁最多 30 秒；TRUNCATE：日志文件保留、只清空，不反复创建删除。
+        # Windows（以及 WSL 访问 Windows 磁盘）上刚删除的文件会短暂"删除挂起"，并发写入时
+        # 默认的 DELETE 模式会偶发 "unable to open database file"
+        _engine = create_engine(s.database_url, connect_args={"check_same_thread": False, "timeout": 30})
+        if s.database_url.startswith("sqlite"):
+            event.listen(_engine, "connect", lambda con, _: con.execute("PRAGMA journal_mode=TRUNCATE"))
         SQLModel.metadata.create_all(_engine)
     return _engine
 

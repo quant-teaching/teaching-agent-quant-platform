@@ -8,7 +8,7 @@ import json
 import multiprocessing
 import uuid
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -182,11 +182,16 @@ def _universe_label(universe: list[dict[str, str]]) -> str:
 
 def persist_files(result: BacktestResult) -> dict[str, Any]:
     """生成报告 JSON 并写入存档文件。可以在工作进程中执行，返回给主进程的只有报告字典。"""
+    import pandas as pd
+
     payload = result_payload(result)
     with gzip.open(_results_dir() / f"{result.id}.json.gz", "wt", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
     if not result.positions.empty:
         result.positions.to_parquet(_results_dir() / f"{result.id}.positions.parquet", index=False)
+    if result.fills:  # 报告 JSON 里的成交明细有条数上限，完整明细单独存档供导出
+        pd.DataFrame([asdict(f) for f in result.fills]).to_parquet(
+            _results_dir() / f"{result.id}.fills.parquet", index=False)
     return payload
 
 
@@ -307,7 +312,7 @@ def delete_record(result_id: str) -> None:
         if r:
             s.delete(r)
             s.commit()
-    for suffix in (".json.gz", ".positions.parquet"):
+    for suffix in (".json.gz", ".positions.parquet", ".fills.parquet"):
         (_results_dir() / f"{result_id}{suffix}").unlink(missing_ok=True)
     load_payload.cache_clear()
 
