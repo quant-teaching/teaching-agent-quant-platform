@@ -47,7 +47,15 @@ def _on_alarm(signum, frame):
     raise FetchTimeout("请求超过 60 秒")
 
 
-signal.signal(signal.SIGALRM, _on_alarm)
+# Windows 没有 SIGALRM，只能不设超时
+HAS_ALARM = hasattr(signal, "SIGALRM")
+if HAS_ALARM:
+    signal.signal(signal.SIGALRM, _on_alarm)
+
+
+def _alarm(seconds: int) -> None:
+    if HAS_ALARM:
+        signal.alarm(seconds)
 
 
 def log(msg: str) -> None:
@@ -65,11 +73,11 @@ def cached(name: str, fetch: Callable[[], pd.DataFrame], retries: int = 3) -> pd
             return None
     for attempt in range(1, retries + 1):
         try:
-            signal.alarm(60)  # akshare 的请求没有超时，用闹钟信号兜底
+            _alarm(60)  # akshare 的请求没有超时，用闹钟信号兜底
             try:
                 df = fetch()
             finally:
-                signal.alarm(0)
+                _alarm(0)
             time.sleep(0.25)
             if df is None or df.empty:
                 missing.touch()
@@ -220,7 +228,7 @@ def write_manifest(end: str) -> None:
             "start": str(df[dcol].min().date()),
             "end": str(df[dcol].max().date()),
         }
-    (MARKET_DIR / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
+    (MARKET_DIR / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     log("写入 manifest.json")
 
 

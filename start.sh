@@ -16,4 +16,4 @@ fi
 
 echo "==> 启动服务：http://${HOST:-127.0.0.1}:${PORT:-8000}"
 cd backend
-exec uv run uvicorn api.main:app --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}"
+exec uv run python -m uvicorn api.main:app --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}"

@@ -37,9 +37,18 @@
 
 需要 [uv](https://docs.astral.sh/uv/)（Python 依赖管理）、Node.js 20+ 和 pnpm。行情数据快照已随仓库提供，无需联网下载。
 
+**macOS / Linux**
+
 ```bash
 cp .env.example .env   # 可选：填写默认大模型接口；也可以启动后在「模型设置」页面添加
 ./start.sh             # 安装依赖 → 构建前端 → 启动服务
+```
+
+**Windows**：双击项目根目录的 `start.bat`，或在 PowerShell 中运行：
+
+```powershell
+copy .env.example .env   # 可选，同上
+.\start.bat              # 服务就绪后会自动打开浏览器
 ```
 
 打开 <http://127.0.0.1:8000>。开发模式、数据更新、常见问题见 **[部署说明](docs/部署说明.md)**。
@@ -87,7 +96,8 @@ flowchart LR
 │   └── components/               # 对话消息与卡片、回测报告与图表、参数表单
 ├── data/market/                  # 行情快照（随仓库提交，保证可复现）
 ├── docs/                         # 设计文档、算法库说明、部署说明、测试报告
-└── start.sh                      # 一键启动
+├── start.sh                      # 一键启动（macOS / Linux）
+└── start.bat / start.ps1         # 一键启动（Windows）
 ```
 
 ## 界面
