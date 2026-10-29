@@ -1,4 +1,6 @@
 // 流式对话：POST /api/chat，读取 SSE 事件流
+import { handleUnauthorized } from './client'
+
 export interface ChatEvent {
   type: string
   [k: string]: any
@@ -16,6 +18,7 @@ export async function streamChat(
     body: JSON.stringify({ message, session_id: sessionId }),
     signal,
   })
+  if (resp.status === 401) handleUnauthorized('/api/chat')
   if (!resp.ok || !resp.body) {
     let detail = `请求失败（${resp.status}）`
     try {

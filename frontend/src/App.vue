@@ -43,7 +43,8 @@ const overrides = computed<GlobalThemeOverrides>(() => {
   <NConfigProvider :theme="theme.isDark ? darkTheme : null" :theme-overrides="overrides" :locale="zhCN" :date-locale="dateZhCN">
     <NMessageProvider placement="top">
       <NDialogProvider>
-        <div class="shell">
+        <RouterView v-if="route.meta.bare" />
+        <div v-else class="shell">
           <AppSidebar />
           <main class="main" :class="{ full: route.meta.full }">
             <RouterView v-slot="{ Component }">

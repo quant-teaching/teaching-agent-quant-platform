@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, CircleCheck, CircleX, KeyRound, Link2, Loader2, Pencil, Plus, RefreshCw, Search, Server, Trash2, X, Zap } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, CircleCheck, CircleX, KeyRound, Link2, Loader2, LockKeyhole, Pencil, Plus, RefreshCw, Search, Server, Trash2, Users, X, Zap } from 'lucide-vue-next'
 import {
-  NButton, NCheckbox, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSlider, NSwitch, NTag, NTooltip, useMessage,
+  NButton, NCheckbox, NDataTable, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSlider, NSwitch, NTag, NTooltip, useMessage,
+  type DataTableColumns,
 } from 'naive-ui'
-import { computed, onMounted, reactive, ref } from 'vue'
-import { api, type ModelRef, type Provider, type Routing } from '@/api/client'
+import { computed, h, onMounted, reactive, ref } from 'vue'
+import { ADMIN_PW_KEY, api, type ModelRef, type Provider, type Routing } from '@/api/client'
+import { useAuth, type AuthUser } from '@/stores/auth'
+import { timeAgo } from '@/utils/format'
 
 const toast = useMessage()
 const providers = ref<Provider[]>([])
@@ -13,11 +16,92 @@ const routingDirty = ref(false)
 const tests = reactive<Record<string, { loading?: boolean; ok?: boolean; latency_ms?: number; tool_calling?: boolean; error?: string }>>({})
 
 async function load() {
-  const [ps, r] = await Promise.all([api.get<Provider[]>('/api/llm/providers'), api.get<Routing>('/api/llm/routing')])
+  const [ps, r, lk] = await Promise.all([
+    api.get<Provider[]>('/api/llm/providers'), api.get<Routing>('/api/llm/routing'),
+    api.get<{ locked: boolean; mode: 'role' | 'password' }>('/api/llm/lock'),
+  ])
   providers.value = ps
   routing.value = r
   routingDirty.value = false
+  lock.mode = lk.mode
+  lock.locked = lk.locked && !(lk.mode === 'password' && storedAdminPw())
+  if (auth.enabled && auth.user?.role === 'admin') loadUsers()
 }
+
+// ---------------------------------------------------------------- 只读 / 解锁
+
+const auth = useAuth()
+const lock = reactive({ locked: false, mode: 'password' as 'role' | 'password', pw: '', checking: false })
+function storedAdminPw() {
+  try {
+    return sessionStorage.getItem(ADMIN_PW_KEY)
+  } catch {
+    return null
+  }
+}
+async function unlock() {
+  lock.checking = true
+  try {
+    await api.post('/api/llm/unlock', { password: lock.pw })
+    try {
+      sessionStorage.setItem(ADMIN_PW_KEY, lock.pw)
+    } catch { /* 隐私模式：只在本次操作中有效 */ }
+    lock.locked = false
+    lock.pw = ''
+    toast.success('已解锁，本次浏览器会话内可以修改模型设置')
+  } catch (e: any) {
+    toast.error(e.message)
+  } finally {
+    lock.checking = false
+  }
+}
+
+// ---------------------------------------------------------------- 用户管理（管理员）
+
+const users = ref<AuthUser[]>([])
+async function loadUsers() {
+  users.value = await api.get<AuthUser[]>('/api/auth/users')
+}
+async function setDisabled(u: AuthUser, disabled: boolean) {
+  try {
+    const nu = await api.patch<AuthUser>(`/api/auth/users/${u.id}`, { disabled })
+    Object.assign(u, nu)
+    toast.success(disabled ? `已停用「${u.display_name}」，对方会立即退出登录` : `已启用「${u.display_name}」`)
+  } catch (e: any) {
+    toast.error(e.message)
+  }
+}
+async function removeUser(u: AuthUser) {
+  try {
+    await api.del(`/api/auth/users/${u.id}`)
+    users.value = users.value.filter((x) => x.id !== u.id)
+  } catch (e: any) {
+    toast.error(e.message)
+  }
+}
+const userCols = computed<DataTableColumns<AuthUser>>(() => [
+  {
+    title: '用户', key: 'username', minWidth: 160,
+    render: (u) => h('div', { class: 'u-cell' }, [
+      h('span', { class: ['u-av', u.role === 'admin' ? 'admin' : ''] }, (u.display_name || u.username).slice(0, 1).toUpperCase()),
+      h('span', [h('b', u.display_name), h('em', u.username)]),
+    ]),
+  },
+  { title: '角色', key: 'role', width: 90, render: (u) => h(NTag, { size: 'small', bordered: false, type: u.role === 'admin' ? 'info' : 'default' }, () => (u.role === 'admin' ? '管理员' : '学生')) },
+  { title: '注册时间', key: 'created_at', width: 120, render: (u) => u.created_at.slice(0, 10) },
+  { title: '最近登录', key: 'last_login', width: 110, render: (u) => (u.last_login ? timeAgo(u.last_login) : '—') },
+  {
+    title: '启用', key: 'disabled', width: 70,
+    render: (u) => (u.id === auth.user?.id ? '—' : h(NSwitch, { size: 'small', value: !u.disabled, 'onUpdate:value': (v: boolean) => setDisabled(u, !v) })),
+  },
+  {
+    title: '', key: 'ops', width: 70, align: 'right',
+    render: (u) => (u.id === auth.user?.id ? null : h(NPopconfirm, { onPositiveClick: () => removeUser(u) }, {
+      trigger: () => h(NButton, { size: 'tiny', quaternary: true, type: 'error' }, () => '删除'),
+      default: () => `删除「${u.display_name}」？他的对话和回测记录会保留，但无法再登录`,
+    })),
+  },
+])
 
 // ---------------------------------------------------------------- 接口编辑弹窗
 
@@ -211,14 +295,26 @@ onMounted(load)
       </div>
     </div>
 
+    <div v-if="lock.locked" class="lock-bar">
+      <span class="lock-ic"><LockKeyhole :size="18" /></span>
+      <div class="lock-text">
+        <b>{{ lock.mode === 'role' ? '只有管理员可以修改模型设置' : '模型设置已锁定' }}</b>
+        <span>{{ lock.mode === 'role' ? '你可以查看当前使用的模型；需要调整请联系老师。' : '输入管理员密码后才能添加、修改或测试模型接口。' }}</span>
+      </div>
+      <form v-if="lock.mode === 'password'" class="lock-form" @submit.prevent="unlock">
+        <NInput v-model:value="lock.pw" type="password" show-password-on="click" placeholder="管理员密码" style="width: 180px" />
+        <NButton type="primary" attr-type="submit" :loading="lock.checking" :disabled="!lock.pw">解锁</NButton>
+      </form>
+    </div>
+
     <!-- 调用顺序 -->
-    <section class="card card-pad routing">
+    <section class="card card-pad routing" :class="{ ro: lock.locked }">
       <div class="sec-head">
         <div>
           <h3 class="section-title">调用顺序</h3>
           <p class="section-sub">主模型请求失败、超时或返回空内容时，按顺序自动切换到下一个备用模型，并在对话中提示</p>
         </div>
-        <NButton type="primary" :disabled="!routingDirty" @click="saveRouting">保存调用顺序</NButton>
+        <NButton v-if="!lock.locked" type="primary" :disabled="!routingDirty" @click="saveRouting">保存调用顺序</NButton>
       </div>
 
       <div class="chain">
@@ -251,7 +347,7 @@ onMounted(load)
           </div>
         </div>
 
-        <div class="chain-item add">
+        <div v-if="!lock.locked" class="chain-item add">
           <Plus :size="15" class="muted" />
           <NSelect v-model:value="addFallback" :options="modelOptions as any" placeholder="添加备用模型" filterable class="sel" @update:value="pushFallback" />
         </div>
@@ -280,11 +376,11 @@ onMounted(load)
         <h3 class="section-title">模型接口</h3>
         <p class="section-sub">支持 OpenAI、DeepSeek、通义千问、硅基流动、各类中转站等所有 OpenAI 兼容服务；API Key 只保存在本机后端，不会回传到页面</p>
       </div>
-      <NButton type="primary" @click="openAdd"><template #icon><Plus :size="16" /></template>添加接口</NButton>
+      <NButton v-if="!lock.locked" type="primary" @click="openAdd"><template #icon><Plus :size="16" /></template>添加接口</NButton>
     </div>
 
     <NEmpty v-if="!providers.length" description="还没有模型接口，点击右上角添加" class="card card-pad" />
-    <div class="providers">
+    <div class="providers" :class="{ ro: lock.locked }">
       <div v-for="p in providers" :key="p.id" class="card provider" :class="{ disabled: !p.enabled }">
         <div class="p-head">
           <div class="p-icon"><Server :size="17" /></div>
@@ -306,7 +402,7 @@ onMounted(load)
             </button>
           </span>
         </div>
-        <div class="p-ops">
+        <div v-if="!lock.locked" class="p-ops">
           <NButton size="small" quaternary @click="refresh(p)"><template #icon><RefreshCw :size="14" /></template>刷新模型列表</NButton>
           <NButton size="small" quaternary @click="openEdit(p)"><template #icon><Pencil :size="14" /></template>编辑</NButton>
           <NPopconfirm @positive-click="removeProvider(p)">
@@ -316,6 +412,21 @@ onMounted(load)
         </div>
       </div>
     </div>
+
+    <!-- 用户管理 -->
+    <section v-if="auth.enabled && auth.user?.role === 'admin'" class="card card-pad users">
+      <div class="sec-head">
+        <div>
+          <h3 class="section-title"><Users :size="16" class="ti" /> 用户管理</h3>
+          <p class="section-sub">
+            {{ auth.registration ? '学生用你提供的邀请码自行注册（邀请码在服务器 .env 的 INVITE_CODE 中设置）' : '当前未开放注册：在服务器 .env 中设置 INVITE_CODE 后，学生可以用邀请码注册' }}；
+            停用账号会让对方立即退出登录
+          </p>
+        </div>
+        <NTag :bordered="false" round>{{ users.length }} 个账号</NTag>
+      </div>
+      <NDataTable :columns="userCols" :data="users" size="small" :bordered="false" :scroll-x="640" :pagination="{ pageSize: 10 }" />
+    </section>
 
     <!-- 添加 / 编辑接口 -->
     <NModal v-model:show="modal.show" preset="card" :title="modal.editingId ? '编辑模型接口' : '添加模型接口'" style="width: 640px; max-width: calc(100vw - 32px)" :bordered="false">
@@ -373,6 +484,26 @@ onMounted(load)
 </template>
 
 <style scoped>
+.lock-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; padding: 14px 16px;
+  border-radius: 12px; background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 25%, transparent);
+}
+.lock-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--warn); background: var(--surface); flex-shrink: 0; }
+.lock-text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text-2); }
+.lock-text b { font-size: 14px; color: var(--text-1); }
+.lock-form { display: flex; gap: 8px; }
+.ro { pointer-events: none; }
+.ro :deep(.n-base-selection), .ro :deep(.n-slider), .ro :deep(.n-input-number), .ro :deep(.n-switch), .ro :deep(.ops), .ro :deep(.mtest), .ro :deep(.n-button) { opacity: 0.5; }
+.users { margin-top: 18px; }
+.ti { vertical-align: -2px; margin-right: 2px; }
+:deep(.u-cell) { display: flex; align-items: center; gap: 10px; }
+:deep(.u-cell b) { display: block; font-weight: 600; font-size: 13px; }
+:deep(.u-cell em) { display: block; font-style: normal; font-size: 12px; color: var(--text-3); }
+:deep(.u-av) {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
+  font-size: 13px; font-weight: 650; color: var(--primary-ink); background: var(--primary-soft);
+}
+:deep(.u-av.admin) { color: #fff; background: var(--primary); }
 .page { max-width: 1080px; }
 .sec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .list-head { margin: 28px 0 12px; }

@@ -46,6 +46,17 @@ def normalize_url(url: str) -> str:
     return url.strip().rstrip("/")
 
 
+def same_endpoint(a: str, b: str) -> bool:
+    """两个 API 地址是否指向同一个服务（忽略末尾的 / 和 /v1、大小写）。"""
+    def core(u: str) -> str:
+        u = normalize_url(u).lower()
+        return u.removesuffix("/v1").rstrip("/")
+    return core(a) == core(b)
+
+
+KEY_REQUIRED = "修改了 API 地址，请重新填写 API Key（已保存的 Key 不会发送到新地址）"
+
+
 def mask_key(key: str) -> str:
     if not key:
         return ""
@@ -76,6 +87,9 @@ def upsert_provider(data: dict[str, Any], pid: int | None = None) -> LLMProvider
         p = s.get(LLMProvider, pid) if pid else LLMProvider(name="", base_url="")
         if pid and not p:
             raise LLMError(f"模型接口 {pid} 不存在")
+        # 防止把已保存的 Key 带到别人的服务器：改了地址就必须同时重新填写 Key
+        if pid and data.get("base_url") and not data.get("api_key") and not same_endpoint(data["base_url"], p.base_url):
+            raise LLMError(KEY_REQUIRED)
         for k in ("name", "base_url", "enabled"):
             if data.get(k) is not None:
                 setattr(p, k, normalize_url(data[k]) if k == "base_url" else data[k])

@@ -182,6 +182,52 @@ def test_provider_crud_and_routing(client):
     assert r["primary"] is None and r["fallbacks"] == []
 
 
+def test_saved_key_never_sent_to_new_address(client, monkeypatch):
+    sent = []
+
+    async def fake_fetch(base_url, api_key):
+        sent.append((base_url, api_key))
+        return base_url, ["m1"]
+    monkeypatch.setattr(llm_mod, "fetch_models", fake_fetch)
+    pid = client.post("/api/llm/providers", json={"name": "原接口", "base_url": "https://good.example.com/v1",
+                                                  "api_key": "sk-secret-0123456789"}).json()["id"]
+    # 只改地址不填 Key：拒绝，Key 和地址都不变
+    r = client.put(f"/api/llm/providers/{pid}", json={"base_url": "https://evil.example.com/v1"})
+    assert r.status_code == 400 and "重新填写 API Key" in r.json()["detail"]
+    assert llm_mod.get_provider(pid).base_url == "https://good.example.com/v1"
+    # 用新地址 + 已保存的 Key 拉模型列表：拒绝，请求不会发出
+    r = client.post("/api/llm/models/fetch", json={"base_url": "https://evil.example.com", "provider_id": pid})
+    assert r.status_code == 400 and sent == []
+    # 同一个地址（末尾斜杠、/v1 写法不同）可以沿用已保存的 Key
+    assert client.post("/api/llm/models/fetch", json={"base_url": "https://good.example.com/", "provider_id": pid}).status_code == 200
+    assert sent == [("https://good.example.com/", "sk-secret-0123456789")]
+    # 改地址同时填写新 Key：允许
+    r = client.put(f"/api/llm/providers/{pid}", json={"base_url": "https://new.example.com/v1", "api_key": "sk-new-key-123456"})
+    assert r.status_code == 200 and llm_mod.get_provider(pid).api_key == "sk-new-key-123456"
+    client.delete(f"/api/llm/providers/{pid}")
+
+
+def test_admin_password_locks_model_settings(client, monkeypatch):
+    from api.settings import get_settings
+    monkeypatch.setattr(get_settings(), "admin_password", "teacher-pw")
+    assert client.get("/api/llm/lock").json() == {"locked": True, "mode": "password"}
+    body = {"name": "x", "base_url": "https://x.example.com", "api_key": "sk-xxxxxxxxxxxx"}
+    r = client.post("/api/llm/providers", json=body)
+    assert r.status_code == 403 and "管理员密码" in r.json()["detail"]
+    assert client.post("/api/llm/providers", json=body, headers={"X-Admin-Password": "wrong"}).status_code == 403
+    for method, url in [("put", "/api/llm/routing"), ("post", "/api/llm/test"), ("post", "/api/llm/models/fetch"),
+                        ("delete", "/api/llm/providers/1"), ("post", "/api/llm/providers/1/refresh-models")]:
+        assert client.request(method, url, json={}).status_code == 403, url
+    assert client.get("/api/llm/providers").status_code == 200  # 查看不受影响（Key 已打码）
+    assert client.post("/api/llm/unlock", json={"password": "wrong"}).status_code == 403
+    assert client.post("/api/llm/unlock", json={"password": "teacher-pw"}).json() == {"ok": True}
+    r = client.post("/api/llm/providers", json=body, headers={"X-Admin-Password": "teacher-pw"})
+    assert r.status_code == 200
+    client.delete(f"/api/llm/providers/{r.json()['id']}", headers={"X-Admin-Password": "teacher-pw"})
+    monkeypatch.setattr(get_settings(), "admin_password", "")
+    assert client.get("/api/llm/lock").json() == {"locked": False, "mode": "password"}
+
+
 # ---------------------------------------------------------------- 智能体（假模型）
 
 def scripted(turns):

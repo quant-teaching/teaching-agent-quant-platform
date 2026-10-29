@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     # 回测在独立进程池中计算，多人同时使用时能利用多核；设为 0 则在请求线程内直接计算（测试时使用）
     backtest_workers: int = max(1, min(2, (os.cpu_count() or 2) - 1))
+    # 账号登录：多人共用的服务器上开启。关闭时（本地单人使用）不需要登录
+    auth_enabled: bool = False
+    # 注册邀请码：为空时关闭注册，只有管理员账号能登录
+    invite_code: str = ""
+    # 管理员账号：开启登录时，每次启动按这里的用户名和密码创建或重置管理员；只有管理员能修改模型设置。
+    # 不开启登录时，设置了 ADMIN_PASSWORD 则修改模型设置需要先在页面上输入它解锁
+    admin_username: str = "admin"
+    admin_password: str = ""
 
 
 @lru_cache(maxsize=1)

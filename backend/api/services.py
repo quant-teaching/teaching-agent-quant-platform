@@ -22,6 +22,7 @@ from quant.portfolio.portfolio import Component, PortfolioSpec, run_portfolio
 from quant.strategies.base import ParamError, Strategy, get_strategy_class, load_all
 from quant.strategies.resolve import match_strategies
 
+from . import auth
 from .db import BacktestRecord, DerivedStrategy, engine
 from .serialize import result_payload
 from .settings import get_settings
@@ -207,6 +208,7 @@ def insert_record(payload: dict[str, Any], session_id: str | None, source: str) 
             end=payload["config"]["end"], summary_json=json.dumps(summary, ensure_ascii=False),
             params_json=json.dumps(payload["params"], ensure_ascii=False),
             universe_label=_universe_label(payload["universe"]), session_id=session_id, source=source,
+            user_id=auth.current_user_id(),
         ))
         s.commit()
 
@@ -298,6 +300,8 @@ def list_records(limit: int = 50, session_id: str | None = None) -> list[dict[st
         q = select(BacktestRecord).order_by(BacktestRecord.created_at.desc()).limit(limit)
         if session_id:
             q = q.where(BacktestRecord.session_id == session_id)
+        if auth.enabled():
+            q = q.where(BacktestRecord.user_id == auth.current_user_id())
         rows = s.exec(q).all()
     return [{"id": r.id, "kind": r.kind, "title": r.title, "strategy_id": r.strategy_id, "category": r.category,
              "start": r.start, "end": r.end, "summary": json.loads(r.summary_json),
@@ -309,6 +313,8 @@ def delete_record(result_id: str) -> None:
     result_path(result_id)  # 校验 id，防止路径穿越
     with Session(engine()) as s:
         r = s.get(BacktestRecord, result_id)
+        if r and auth.enabled() and r.user_id != auth.current_user_id() and not auth.is_admin():
+            raise NotFound("回测记录不存在")
         if r:
             s.delete(r)
             s.commit()

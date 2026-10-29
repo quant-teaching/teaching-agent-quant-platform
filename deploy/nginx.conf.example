@@ -1,7 +1,5 @@
-# Nginx 反向代理示例：HTTPS + 访问密码。把 quant.example.com 和证书路径换成自己的，放到 /etc/nginx/conf.d/ 下。
-# 平台本身没有登录功能，对外开放时务必保留 auth_basic。生成密码文件：
-#   printf 'quant:%s\n' "$(openssl passwd -apr1 '你的密码')" > /etc/nginx/quant-platform.htpasswd
-#   chown root:www-data /etc/nginx/quant-platform.htpasswd && chmod 640 /etc/nginx/quant-platform.htpasswd
+# Nginx 反向代理示例（HTTPS）。把 quant.example.com 和证书路径换成自己的，放到 /etc/nginx/conf.d/ 下。
+# 对外开放时请在平台的 .env 中开启账号登录（AUTH_ENABLED=1，见部署说明），由平台自己的登录页鉴权。
 
 server {
     listen 80;
@@ -15,9 +13,6 @@ server {
 
     ssl_certificate     /etc/nginx/ssl/quant.example.com.fullchain.cer;
     ssl_certificate_key /etc/nginx/ssl/quant.example.com.key;
-
-    auth_basic           "量化策略教学平台";
-    auth_basic_user_file /etc/nginx/quant-platform.htpasswd;
 
     client_max_body_size 2m;
     proxy_set_header Host              $host;

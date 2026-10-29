@@ -158,12 +158,17 @@ def fact_check(answer: str, sources: list[Any]) -> dict[str, Any]:
 
 def get_or_create_session(session_id: str | None) -> ChatSession:
     import uuid
+
+    from api import auth
+    uid = auth.current_user_id()
     with Session(engine()) as s:
         if session_id:
             cs = s.get(ChatSession, session_id)
-            if cs:
+            if cs and (not auth.enabled() or cs.user_id == uid):
                 return cs
-        cs = ChatSession(id=session_id or uuid.uuid4().hex[:12])
+            if cs:  # 别人的会话：另开一个新会话，不复用这个 id
+                session_id = None
+        cs = ChatSession(id=session_id or uuid.uuid4().hex[:12], user_id=uid)
         s.add(cs)
         s.commit()
         s.refresh(cs)

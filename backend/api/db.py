@@ -37,8 +37,27 @@ class AppSetting(SQLModel, table=True):
     value: str = Field(sa_column=Column(Text))
 
 
+class User(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    display_name: str = ""
+    password_hash: str
+    role: str = "user"  # admin / user
+    disabled: bool = False
+    created_at: datetime = Field(default_factory=now)
+    last_login: datetime | None = None
+
+
+class AuthSession(SQLModel, table=True):
+    token_hash: str = Field(primary_key=True)  # 只存令牌的 SHA-256，数据库泄露也拿不到可用的登录态
+    user_id: int = Field(index=True)
+    expires_at: float  # Unix 时间戳
+    created_at: datetime = Field(default_factory=now)
+
+
 class ChatSession(SQLModel, table=True):
     id: str = Field(primary_key=True)
+    user_id: int | None = Field(default=None, index=True)  # 开启登录后按用户隔离
     title: str = "新对话"
     state_json: str = Field(default="{}", sa_column=Column(Text))  # 工作参数、最近回测等
     created_at: datetime = Field(default_factory=now)
@@ -68,6 +87,7 @@ class BacktestRecord(SQLModel, table=True):
     params_json: str = Field(default="{}", sa_column=Column(Text))
     universe_label: str = ""
     session_id: str | None = Field(default=None, index=True)
+    user_id: int | None = Field(default=None, index=True)
     source: str = "manual"  # manual / chat
     created_at: datetime = Field(default_factory=now)
 
@@ -99,7 +119,18 @@ def engine():
         if s.database_url.startswith("sqlite"):
             event.listen(_engine, "connect", lambda con, _: con.execute("PRAGMA journal_mode=TRUNCATE"))
         SQLModel.metadata.create_all(_engine)
+        _migrate(_engine)
     return _engine
+
+
+def _migrate(eng) -> None:
+    """旧数据库补列（create_all 不会修改已有的表）。"""
+    with eng.begin() as con:
+        for table in ("chatsession", "backtestrecord"):
+            cols = {r[1] for r in con.exec_driver_sql(f"PRAGMA table_info({table})")}
+            if cols and "user_id" not in cols:
+                con.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER")
+                con.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)")
 
 
 def session() -> Iterator[Session]:

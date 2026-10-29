@@ -1,17 +1,46 @@
 // 后端接口。开发时通过 Vite 代理转发到 127.0.0.1:8000
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(message: string, public status = 0) {
+    super(message)
+  }
+}
+
+// 登录过期时由 main.ts 注册的回调跳转到登录页
+let onUnauthorized: (() => void) | null = null
+export function setUnauthorizedHandler(fn: () => void) {
+  onUnauthorized = fn
+}
+export function handleUnauthorized(url: string) {
+  if (!url.startsWith('/api/auth/')) onUnauthorized?.()
+}
+
+// 未开启登录、但设置了管理员密码时，修改模型设置需要带上它（本页会话内有效）
+export const ADMIN_PW_KEY = 'admin-password'
+function adminHeader(url: string): Record<string, string> {
+  if (!url.startsWith('/api/llm/')) return {}
+  try {
+    const pw = sessionStorage.getItem(ADMIN_PW_KEY)
+    return pw ? { 'X-Admin-Password': pw } : {}
+  } catch {
+    return {}
+  }
+}
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const resp = await fetch(url, {
     method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...adminHeader(url) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   const text = await resp.text()
-  const data = text ? JSON.parse(text) : null
+  let data: any = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch { /* 非 JSON（如网关错误页） */ }
+  if (resp.status === 401) handleUnauthorized(url)
   if (!resp.ok) {
     const detail = data?.detail
-    throw new ApiError(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((d: any) => d.msg).join('；') : `请求失败（${resp.status}）`)
+    throw new ApiError(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((d: any) => d.msg).join('；') : `请求失败（${resp.status}）`, resp.status)
   }
   return data as T
 }

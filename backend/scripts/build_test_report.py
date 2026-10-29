@@ -103,6 +103,14 @@ TEST_NAMES = {
     "test_portfolio_endpoint": "组合回测接口，子策略结果一并存档",
     "test_export_dataset_is_complete": "导出回测数据集：成交明细超过页面上限时仍完整、指标与报告一致、附免责声明",
     "test_second_instance_on_same_data_dir_is_refused": "同一数据目录拒绝启动第二个实例（防止 Windows 与 WSL 同时写库）",
+    "test_saved_key_never_sent_to_new_address": "已保存的 API Key 不会被发送到修改后的新地址（防止 Key 外泄）",
+    "test_admin_password_locks_model_settings": "未开启登录时，设置管理员密码后修改模型设置需要先解锁",
+    "test_login_required_and_registration": "开启登录后未登录不能访问接口；注册校验邀请码、用户名与密码强度；Cookie 为 HttpOnly",
+    "test_registration_closed_without_invite_code": "未设置邀请码时关闭注册",
+    "test_data_isolated_between_users": "对话与回测记录按用户隔离，不能查看或删除别人的数据",
+    "test_only_admin_changes_model_settings_and_users": "只有管理员能修改模型设置、管理用户；停用账号立即失效",
+    "test_login_lockout_and_password_change": "连续输错密码锁定 5 分钟；修改密码后旧密码失效",
+    "test_password_hash_is_salted_scrypt": "密码加盐 scrypt 存储",
     "test_sqlite_uses_truncate_journal": "SQLite 使用 TRUNCATE 日志模式，避免 Windows 磁盘上并发写入偶发失败",
     "test_derived_strategy": "衍生策略的创建、重名校验、回测与删除",
     "test_provider_crud_and_routing": "模型接口增删改、Key 掩码、主备顺序校验",
@@ -120,6 +128,7 @@ TEST_FILES = {
     "tests/test_engine.py": "回测引擎（手工构造行情）",
     "tests/test_strategies.py": "策略与回测（真实行情）",
     "tests/test_api.py": "接口、智能体与安全（假模型，不访问网络）",
+    "tests/test_auth.py": "账号登录与权限",
 }
 
 
