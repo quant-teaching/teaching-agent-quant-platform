@@ -68,6 +68,8 @@ vector_store/
 chroma/
 faiss_index/
 backtest_results/
+data/results/
+data/app.db*
 reports/output/
 logs/
 *.log
