@@ -12,7 +12,7 @@ class Params(StrategyParams):
     lookbacks: str = Field("20,60,120", title="动量回看期组合",
                            description="逗号分隔的多个回看天数，信号取各周期涨跌方向的平均，多周期更稳健")
     vol_window: int = Field(60, ge=10, le=250, title="波动率窗口", description="估计品种波动率的天数")
-    target_vol: float = Field(0.05, gt=0, le=0.5, title="单品种目标波动率",
+    target_vol: float = Field(0.03, gt=0, le=0.5, title="单品种目标波动率",
                               description="按波动率倒数调整仓位，使每个品种贡献的年化波动约等于该值")
     position_limit: float = Field(0.3, gt=0, le=1, title="单品种仓位上限",
                                   description="单个品种名义市值占权益比例的上限，防止低波动品种杠杆过高")

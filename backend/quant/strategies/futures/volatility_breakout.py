@@ -9,8 +9,8 @@ class Params(StopParams):
     n: int = Field(4, ge=1, le=30, title="波幅回看天数", description="计算参考波幅 Range 的天数")
     k_up: float = Field(0.5, gt=0, le=3, title="上轨系数 K1", description="上轨 = 当日开盘价 + K1 × Range")
     k_down: float = Field(0.5, gt=0, le=3, title="下轨系数 K2", description="下轨 = 当日开盘价 − K2 × Range")
-    position_limit: float = Field(0.2, gt=0, le=1, title="单品种仓位上限",
-                                  description="单个品种名义市值占权益的比例")
+    position_limit: float = Field(0.1, gt=0, le=1, title="单品种仓位上限",
+                                  description="单个品种名义市值占权益的比例。该策略始终持仓，16 个品种合计名义杠杆约为 16 × 该值")
     allow_short: bool = Field(True, title="允许做空", description="关闭后只做多")
 
 

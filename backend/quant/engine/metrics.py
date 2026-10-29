@@ -98,8 +98,9 @@ def trade_stats(trades: list[Trade]) -> dict:
     return {
         "trade_count": n,
         "open_trade_count": len(trades) - n,
-        "win_rate": len(wins) / n if n else 0.0,
-        "profit_loss_ratio": avg_win / abs(avg_loss) if avg_loss < 0 else (math.inf if wins else 0.0),
+        # 没有已平仓交易时胜率和盈亏比没有意义，返回 None（界面显示为"—"）
+        "win_rate": len(wins) / n if n else None,
+        "profit_loss_ratio": avg_win / abs(avg_loss) if avg_loss < 0 else (math.inf if wins else None),
         "profit_factor": sum(wins) / abs(sum(losses)) if losses and sum(losses) < 0 else 0.0,
         "avg_win": avg_win,
         "avg_loss": avg_loss,

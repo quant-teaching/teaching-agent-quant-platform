@@ -11,8 +11,8 @@ class Params(StopParams):
     window: int = Field(20, ge=5, le=120, title="通道均线周期", description="分别对最高价、最低价求均线的天数")
     exit_mode: Literal["reverse", "middle"] = Field("reverse", title="离场方式",
                            description="reverse：价格穿越另一侧通道时反手；middle：回到通道中线即平仓")
-    position_limit: float = Field(0.2, gt=0, le=1, title="单品种仓位上限",
-                                  description="单个品种名义市值占权益的比例")
+    position_limit: float = Field(0.1, gt=0, le=1, title="单品种仓位上限",
+                                  description="单个品种名义市值占权益的比例。该策略始终持仓，16 个品种合计名义杠杆约为 16 × 该值")
     allow_short: bool = Field(True, title="允许做空", description="关闭后只做多")
 
 

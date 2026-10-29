@@ -30,6 +30,9 @@ from quant.paths import CACHE_DIR, MARKET_DIR  # noqa: E402
 
 STOCK_START = "2016-01-01"
 FUTURES_START = "2019-01-01"
+# 新浪只保留 2020 年及以后到期的合约（最早 2019 年 1 月上市）。2019 年里这些合约还不是真正的主力，
+# 到 2020 年初各品种的真实主力都已落在可得合约中，所以连续合约从这里开始
+FUTURES_VALID_FROM = "2020-01-01"
 FUTURES_YEARS = range(2020, 2028)
 
 RAW_DIR = CACHE_DIR / "raw"
@@ -197,7 +200,8 @@ def download_futures(end: str) -> None:
     out = out[(out["date"] >= FUTURES_START) & (out["date"] <= end)]
     write(out.sort_values(["product", "contract", "date"]), "futures_contracts")
     log("构建主力连续合约")
-    write(build_continuous(out), "futures_continuous")
+    cont = build_continuous(out)
+    write(cont[cont["date"] >= FUTURES_VALID_FROM], "futures_continuous")
 
 
 def write(df: pd.DataFrame, name: str) -> None:

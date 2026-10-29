@@ -26,7 +26,7 @@
 | fast 短均线周期 | 10 | 短期趋势 | — |
 | slow 长均线周期 | 40 | 中期趋势 | 两者间距越大，信号越少越稳定 |
 | ma_type 均线类型 | EMA | SMA / EMA | SMA 更平滑、更滞后 |
-| position_limit 单品种仓位上限 | 0.2 | 名义市值占比 | — |
+| position_limit 单品种仓位上限 | 0.1 | 名义市值占比 | 该策略始终持仓，16 个品种合计名义杠杆约为 16 × 该值 |
 | allow_short 允许做空 | 开启 | — | — |
 | stop_loss / take_profit | 0（关闭） | 止损 / 止盈 | — |
 

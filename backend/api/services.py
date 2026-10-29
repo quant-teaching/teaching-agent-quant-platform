@@ -86,8 +86,21 @@ def get_entry(ref: str) -> StrategyEntry:
     raise NotFound(f"算法库中没有找到「{ref}」，你可能想找：{hint}")
 
 
+# 算法库展示顺序，与赛题给出的算法清单一致
+ORDER = [
+    "dual_ma_stock", "momentum_stock", "reversal_stock", "multi_factor_stock", "industry_rotation",
+    "bollinger_stock", "rsi_stock", "grid_stock", "macd_stock", "kdj_stock", "risk_parity_stock",
+    "dividend_rotation",
+    "turtle_futures", "atr_channel_futures", "calendar_spread_futures", "trend_cta_futures",
+    "mean_reversion_futures", "bollinger_futures", "volatility_breakout_futures", "ma_channel_futures",
+    "grid_futures", "dual_ma_futures",
+]
+
+
 def catalog() -> list[dict[str, Any]]:
-    out = [c.info() | {"derived": False} for c in load_all().values()]
+    rank = {sid: i for i, sid in enumerate(ORDER)}
+    builtin = sorted(load_all().values(), key=lambda c: rank.get(c.id, len(ORDER)))
+    out = [c.info() | {"derived": False} for c in builtin]
     out += [_entry_from_derived(d).info() for d in _derived_all()]
     return out
 

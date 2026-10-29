@@ -90,3 +90,8 @@ logs/
 Thumbs.db
 desktop.ini
 ~$*
+
+# ===== 行情快照随仓库提交（保证回测可复现）；单合约原始数据可由下载脚本重建，不提交 =====
+!data/market/
+!data/market/*.parquet
+data/market/futures_contracts.parquet

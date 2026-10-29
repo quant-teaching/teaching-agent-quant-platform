@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-10-28T23:36:06",
+  "end": "2026-10-28",
+  "datasets": {
+    "dividends": {
+      "rows": 1298,
+      "start": "1991-04-03",
+      "end": "2026-10-26"
+    },
+    "futures_continuous": {
+      "rows": 52824,
+      "start": "2020-01-02",
+      "end": "2026-10-28"
+    },
+    "futures_contracts": {
+      "rows": 123628,
+      "start": "2019-01-07",
+      "end": "2026-10-28"
+    },
+    "index_daily": {
+      "rows": 7878,
+      "start": "2016-01-04",
+      "end": "2026-10-28"
+    },
+    "industry_daily": {
+      "rows": 76604,
+      "start": "2016-01-04",
+      "end": "2026-10-28"
+    },
+    "stock_daily": {
+      "rows": 142191,
+      "start": "2016-01-04",
+      "end": "2026-10-28"
+    }
+  }
+}

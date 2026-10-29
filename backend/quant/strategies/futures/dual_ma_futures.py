@@ -11,8 +11,8 @@ class Params(StopParams):
     fast: int = Field(10, ge=2, le=120, title="短均线周期", description="短期均线天数")
     slow: int = Field(40, ge=5, le=250, title="长均线周期", description="长期均线天数")
     ma_type: Literal["SMA", "EMA"] = Field("EMA", title="均线类型", description="SMA 简单平均；EMA 指数平均")
-    position_limit: float = Field(0.2, gt=0, le=1, title="单品种仓位上限",
-                                  description="单个品种名义市值占权益的比例")
+    position_limit: float = Field(0.1, gt=0, le=1, title="单品种仓位上限",
+                                  description="单个品种名义市值占权益的比例。该策略始终持仓，16 个品种合计名义杠杆约为 16 × 该值")
     allow_short: bool = Field(True, title="允许做空", description="关闭后死叉只平多不开空")
 
     @model_validator(mode="after")
