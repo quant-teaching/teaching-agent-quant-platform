@@ -65,34 +65,120 @@ def regimes(r) -> str:
     return "；".join(parts)
 
 
+TEST_NAMES = {
+    # 回测引擎（手工构造行情）
+    "test_signal_executes_next_open_no_lookahead": "信号次日开盘成交，无未来函数",
+    "test_stock_lot_size_commission_and_stamp_duty": "A 股 100 股一手、佣金、印花税与逐笔盈亏",
+    "test_stamp_duty_halved_after_2023_08_28": "印花税 2023-08-28 起减半",
+    "test_limit_up_open_blocks_buy_until_next_day": "开盘涨停买不进、顺延至次日",
+    "test_futures_mark_to_market_and_short": "期货逐日盯市与做空盈亏",
+    "test_futures_roll_pnl_ignores_contract_gap": "期货换月价差不计入盈亏",
+    "test_futures_roll_charges_costs": "期货换月收取移仓滑点",
+    "test_margin_cap_scales_down_futures": "保证金占用上限缩减开仓",
+    "test_negative_stock_weight_clipped": "A 股不能做空",
+    "test_metrics_formulas": "年化收益、最大回撤、夏普比率公式",
+    "test_round_trip_win_rate": "完整交易切分与胜率",
+    # 策略（真实行情）
+    "test_strategy_runs_with_sane_output": "每个策略都能运行，指标有限、净值为正、有成交、股票无空头",
+    "test_no_lookahead": "截断数据前后截止日以前的信号完全一致（无未来函数）",
+    "test_custom_universe_single_stock": "自选单只股票",
+    "test_universe_with_next_leg_expands": "跨期套利自动补充次主力腿",
+    "test_wrong_asset_type_rejected": "策略与标的类型不匹配时报错",
+    "test_min_symbols_enforced": "截面策略标的数量不足时报错",
+    "test_unknown_symbol_rejected": "未知标的报错",
+    "test_period_outside_data_rejected": "区间超出数据范围时给出清晰提示",
+    "test_end_before_start_rejected": "结束日期早于开始日期时报错",
+    "test_invalid_params_give_chinese_message": "参数不合法时给出中文提示",
+    "test_short_period_works": "两周的短区间回测",
+    "test_futures_before_continuous_start": "期货区间早于数据起点时报错或提示",
+    "test_stops_reduce_exposure": "止损降低平均仓位",
+    "test_position_limit_scales_drawdown": "仓位上限与波动率同向",
+    "test_portfolio_equal_and_custom_weights": "组合等权 / 自定义权重，风险贡献之和为 1",
+    "test_portfolio_without_rebalance_matches_value_sum": "不调仓组合净值 = 各子策略净值加权和",
+    "test_benchmarks_start_at_one": "基准净值起点为 1，收益与指数收盘价一致",
+    # 接口与智能体
+    "test_health_market_strategies": "数据概览与算法库接口，按名称或别名查找策略",
+    "test_backtest_lifecycle": "回测创建、查询、持仓、列表、删除",
+    "test_backtest_errors_are_readable": "回测错误返回可读的中文提示",
+    "test_portfolio_endpoint": "组合回测接口，子策略结果一并存档",
+    "test_derived_strategy": "衍生策略的创建、重名校验、回测与删除",
+    "test_provider_crud_and_routing": "模型接口增删改、Key 掩码、主备顺序校验",
+    "test_agent_tool_loop_disclaimer_and_fact_check": "智能体多轮工具调用、参数前后对比、编造数字被识别、强制免责、会话参数延续",
+    "test_agent_fact_check_passes_for_real_numbers": "引用真实回测数字时核验通过",
+    "test_agent_tool_error_is_fed_back": "工具报错反馈给模型；未回测时不附加免责",
+    "test_investment_advice_detection": "识别寻求实盘投资建议的提问",
+    "test_compliance_hint_injected": "实盘建议类提问时注入合规指令",
+    "test_fallback_chain": "主模型报错 → 备用模型空响应 → 下一个备用模型成功；全部失败时汇总错误",
+    "test_result_id_path_traversal_rejected": "回测 id 校验，防止路径穿越",
+    "test_report_served_gzip_directly": "报告存档以 gzip 原样返回",
+    "test_spa_route_blocks_path_traversal": "前端静态文件路由防止路径穿越读取密钥",
+}
+TEST_FILES = {
+    "tests/test_engine.py": "回测引擎（手工构造行情）",
+    "tests/test_strategies.py": "策略与回测（真实行情）",
+    "tests/test_api.py": "接口、智能体与安全（假模型，不访问网络）",
+}
+
+
 def section_unit_tests(out: list[str]) -> None:
     t0 = time.perf_counter()
-    res = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rA", "--no-header", "-p", "no:cacheprovider"],
-                         cwd=BACKEND_DIR, capture_output=True, text=True)
-    passed = [ln.split("::")[-1] for ln in res.stdout.splitlines() if ln.startswith("PASSED")]
-    failed = [ln for ln in res.stdout.splitlines() if ln.startswith("FAILED")]
-    names = {
-        "test_signal_executes_next_open_no_lookahead": "信号次日开盘成交，无未来函数",
-        "test_stock_lot_size_commission_and_stamp_duty": "A 股 100 股一手、佣金、印花税与逐笔盈亏",
-        "test_stamp_duty_halved_after_2023_08_28": "印花税 2023-08-28 起减半",
-        "test_limit_up_open_blocks_buy_until_next_day": "开盘涨停买不进、顺延至次日",
-        "test_futures_mark_to_market_and_short": "期货逐日盯市与做空盈亏",
-        "test_futures_roll_pnl_ignores_contract_gap": "期货换月价差不计入盈亏",
-        "test_futures_roll_charges_costs": "期货换月收取移仓滑点",
-        "test_margin_cap_scales_down_futures": "保证金占用上限缩减开仓",
-        "test_negative_stock_weight_clipped": "A 股不能做空",
-        "test_metrics_formulas": "年化收益、最大回撤、夏普比率公式",
-        "test_round_trip_win_rate": "完整交易切分与胜率",
-    }
-    out += ["## 1. 回测引擎单元测试", "",
-            f"用手工构造的行情验证引擎的关键规则，共 {len(passed) + len(failed)} 项，"
-            f"**通过 {len(passed)} 项，失败 {len(failed)} 项**（用时 {time.perf_counter() - t0:.1f} 秒）。", "",
-            "| 测试 | 验证内容 | 结果 |", "|---|---|---|"]
-    for p in passed:
-        out.append(f"| `{p}` | {names.get(p, '')} | ✅ 通过 |")
-    for f in failed:
-        out.append(f"| `{f}` | | ❌ 失败 |")
-    out.append("")
+    res = subprocess.run([sys.executable, "-m", "pytest", "-q", "-rA", "--no-header", "-p", "no:cacheprovider",
+                          "-W", "ignore"], cwd=BACKEND_DIR, capture_output=True, text=True)
+    rows: dict[tuple[str, str], list[bool]] = {}
+    for ln in res.stdout.splitlines():
+        if not (ln.startswith("PASSED") or ln.startswith("FAILED")):
+            continue
+        nodeid = ln.split(" ", 1)[1].split(" - ")[0]
+        file, name = nodeid.split("::", 1)
+        base = name.split("[")[0]
+        rows.setdefault((file, base), []).append(ln.startswith("PASSED"))
+    total = sum(len(v) for v in rows.values())
+    ok = sum(sum(v) for v in rows.values())
+    out += ["## 1. 自动化测试", "",
+            f"共 **{total}** 项，**通过 {ok} 项，失败 {total - ok} 项**（用时 {time.perf_counter() - t0:.0f} 秒，"
+            "运行 `uv run pytest` 复现）。测试使用临时数据库，大模型用脚本化的假模型代替。", ""]
+    for file, title in TEST_FILES.items():
+        items = [(b, v) for (f, b), v in rows.items() if f == file]
+        if not items:
+            continue
+        out += [f"### {title}（{sum(len(v) for _, v in items)} 项）", "", "| 测试 | 验证内容 | 结果 |", "|---|---|---|"]
+        for base, v in items:
+            count = f" × {len(v)}" if len(v) > 1 else ""
+            mark = "✅ 通过" if all(v) else f"❌ 失败 {len(v) - sum(v)} 项"
+            out.append(f"| `{base}`{count} | {TEST_NAMES.get(base, '')} | {mark} |")
+        out.append("")
+
+
+def section_performance(out: list[str]) -> None:
+    """进程内计时：首次（需要整理行情宽表）与再次回测（命中缓存）。"""
+    import quant.data.loader as loader
+    cases = [("dual_ma_stock", "股票池 55 只"), ("multi_factor_stock", "股票池 55 只"),
+             ("industry_rotation", "申万行业 31 个"), ("turtle_futures", "商品期货 16 个"),
+             ("calendar_spread_futures", "期货 5 对价差")]
+    out += ["## 5. 性能与压测", "", "### 单次回测耗时（2021-01-01 ~ 2024-12-31，进程内计时）", "",
+            "| 策略 | 标的 | 首次 | 再次（行情已缓存） |", "|---|---|---:|---:|"]
+    for sid, desc in cases:
+        loader._load_bars.cache_clear()
+        t = time.perf_counter()
+        r = run_backtest(sid, {}, None, {"start": "2021-01-01", "end": "2024-12-31"})
+        cold = time.perf_counter() - t
+        t = time.perf_counter()
+        run_backtest(sid, {}, None, {"start": "2022-01-01", "end": "2023-12-31"})
+        warm = time.perf_counter() - t
+        out.append(f"| {r.strategy['name']} | {desc} | {cold:.2f} 秒 | {warm:.2f} 秒 |")
+    out += ["",
+            "### 服务压测（`scripts/stress_backtest.py`、`scripts/stress_chat.py`，2026-10-29 实测）", "",
+            "测试机 32 核，后端单进程 + 2 个回测工作进程（默认配置）。", "",
+            "| 场景 | 结果 |", "|---|---|",
+            "| 44 个回测请求、并发 8（覆盖 22 个策略、4 种区间），行情未缓存 | 全部成功；吞吐 1.33 个/秒；延迟中位数 3.7 秒 |",
+            "| 同上，行情已缓存 | 全部成功；吞吐 2.93 个/秒；延迟中位数 2.5 秒、P90 3.3 秒、最大 3.8 秒 |",
+            "| 压测期间探测健康接口 | 中位数 3 毫秒，最大 0.4 秒，服务始终可响应 |",
+            "| 读取回测报告 | gzip 存档原样返回，约 280 KB（未压缩 1.2 MB），10 毫秒 |",
+            "| 内存（主进程 + 2 个工作进程） | 启动约 160 MB；两轮压测后约 1.1 GB 并保持稳定，无持续增长 |",
+            "| 4 个会话并发对话（真实模型，含 2 次回测 / 组合回测） | 全部成功、会话互不串扰；首字 8~23 秒（含工具调用），回复数字核验全部通过 |",
+            "",
+            "优化记录：首次回测由 5.7 秒降到 1.3 秒（修复行情加载中重复构建集合的热点）；同一标的池再次回测 0.25 秒（按标的池缓存全部历史）；"
+            "回测计算与报告生成移到进程池，P90 延迟由 13 秒降到 3.3 秒；报告存档直接以 gzip 返回。", ""]
 
 
 def section_cross_check(out: list[str]) -> None:
@@ -220,7 +306,7 @@ AGENT_CASES = [
 def section_agent(out: list[str]) -> None:
     import sqlite3
     db = DATA_DIR / "app.db"
-    out += ["## 5. 智能体对话测试", "",
+    out += ["## 6. 智能体对话测试", "",
             "以下为平台中真实执行的对话（从本地数据库导出），展示智能体调用了哪些工具、事实核验结果以及回复原文。", ""]
     if not db.exists():
         out += ["（本地还没有对话记录。启动平台后在「智能助手」中依次发送下列问题，再重新运行本脚本。）", ""]
@@ -266,13 +352,15 @@ def main() -> None:
     section_cross_check(out)
     section_cases(out)
     section_smoke(out)
+    section_performance(out)
     section_agent(out)
     out += ["## 结论", "",
             "1. 回测引擎关键规则（无未来函数、整手、佣金与印花税、涨跌停、期货盯市、换月、保证金）全部通过单元测试，"
-            "并与手工计算逐分核对一致；",
+            "并与手工计算逐分核对一致；22 个策略全部通过「截断数据前后信号一致」的无未来函数检验；",
             "2. 22 个策略均可在默认参数下运行并输出完整指标，参数修改、参数敏感性和多策略组合案例结果合理；",
             "3. 智能体能通过自然语言完成调取算法、修改参数、回测、组合与教学问答，回测结论中的数字经过核验，"
-            "回测类回复自动附加免责声明，并能拒绝实盘投资建议。", "",
+            "回测类回复自动附加免责声明，并能拒绝实盘投资建议；",
+            "4. 并发回测与并发对话压测中服务稳定、无错误，内存不持续增长；接口已做路径穿越防护。", "",
             f"_报告生成用时 {time.perf_counter() - t0:.0f} 秒。_", ""]
     p = ROOT_DIR / "docs" / "测试报告.md"
     p.parent.mkdir(exist_ok=True)

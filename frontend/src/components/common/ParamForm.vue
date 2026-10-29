@@ -77,7 +77,9 @@ const OPTION_LABELS: Record<string, string> = {
 .form { display: flex; flex-direction: column; gap: 4px; }
 .row { display: grid; grid-template-columns: minmax(150px, 210px) minmax(140px, 220px) 1fr; align-items: center; gap: 4px 16px; padding: 9px 10px; border-radius: 10px; }
 .row.changed { background: var(--primary-soft); }
-.dense .row { grid-template-columns: 1fr 150px; padding: 6px 8px; }
+.dense .row { grid-template-columns: minmax(0, 1fr) 150px; padding: 6px 8px; }
+.dense .key { display: none; }
+.title { white-space: nowrap; }
 .label { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .title { font-size: 13.5px; font-weight: 550; color: var(--text-1); cursor: help; border-bottom: 1px dotted var(--border-strong); }
 .key { font-family: var(--mono); font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

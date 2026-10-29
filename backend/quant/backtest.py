@@ -11,8 +11,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .data.catalog import INDEXES
-from .data.loader import DataError, load_bars, load_benchmarks, resolve_universe, symbol_name
+from .data.catalog import INDEXES, is_futures
+from .data.loader import DataError, data_range, load_bars, load_benchmarks, resolve_universe, symbol_name
 from .engine.config import BacktestConfig
 from .engine.engine import EngineOutput, run_engine
 from .engine.ledger import Trade
@@ -77,7 +77,8 @@ def run_backtest(
     strat = cls(params)
     cfg = config if isinstance(config, BacktestConfig) else BacktestConfig(**(config or {}))
     symbols = cls.expand_universe(resolve_universe(universe or cls.default_universe))
-    bars = load_bars(symbols, end=cfg.end)
+    range_note = check_period(symbols, cfg)
+    bars = load_bars(symbols)  # 全部历史（已缓存）；引擎只撮合回测区间内的交易日
     check_universe(cls, symbols, bars.types)
 
     out: StrategyOutput = strat.generate(bars)
@@ -94,8 +95,28 @@ def run_backtest(
         bars=bars,
         out=out,
     )
+    if range_note:
+        result.warnings.insert(0, range_note)
     result.elapsed = time.perf_counter() - t0
     return result
+
+
+def check_period(symbols: list[str], cfg: BacktestConfig) -> str | None:
+    """回测区间与数据范围不重叠时直接报错；部分超出时返回提示。"""
+    ranges = data_range()
+    kinds = {"futures" if is_futures(s) else ("industry" if s.startswith("80") else "stock") for s in symbols}
+    labels = {"stock": "A 股", "industry": "申万行业", "futures": "商品期货"}
+    start = max(ranges[k][0] for k in kinds if k in ranges)
+    end = min(ranges[k][1] for k in kinds if k in ranges)
+    desc = "；".join(f"{labels[k]} {ranges[k][0]} 至 {ranges[k][1]}" for k in sorted(kinds) if k in ranges)
+    if str(cfg.end) < start or str(cfg.start) > end:
+        raise DataError(f"回测区间 {cfg.start} 至 {cfg.end} 不在数据范围内（{desc}），请调整区间")
+    notes = []
+    if str(cfg.start) < start:
+        notes.append(f"数据从 {start} 开始，回测实际从这一天开始")
+    if str(cfg.end) > end:
+        notes.append(f"数据截至 {end}，回测实际在这一天结束")
+    return "；".join(notes) or None
 
 
 def _assemble(kind, title, strategy, params, symbols, cfg, eng: EngineOutput, bars, out) -> BacktestResult:

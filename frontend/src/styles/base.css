@@ -167,3 +167,10 @@ a { color: var(--primary); text-decoration: none; }
 .hljs-title, .hljs-title.function_, .hljs-title.class_ { color: var(--hl-fn); }
 .hljs-built_in, .hljs-type, .hljs-params .hljs-built_in { color: var(--hl-bi); }
 .hljs-meta, .hljs-decorator { color: var(--hl-num); }
+
+/* 窄屏 */
+@media (max-width: 640px) {
+  .page { padding: 16px 14px 36px; }
+  .page-head { flex-direction: column; align-items: flex-start; }
+  .page-head h1 { font-size: 19px; }
+}

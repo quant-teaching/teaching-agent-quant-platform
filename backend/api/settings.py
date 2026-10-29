@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -27,6 +28,8 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{DATA_DIR / 'app.db'}"
     results_dir: Path = DATA_DIR / "results"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    # 回测在独立进程池中计算，多人同时使用时能利用多核；设为 0 则在请求线程内直接计算（测试时使用）
+    backtest_workers: int = max(1, min(2, (os.cpu_count() or 2) - 1))
 
 
 @lru_cache(maxsize=1)

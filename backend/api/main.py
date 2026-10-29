@@ -8,7 +8,8 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import Session, select
@@ -32,11 +33,14 @@ async def lifespan(app: FastAPI):
     engine()
     llm.seed_from_env()
     yield
+    services.shutdown_pool()
 
 
 app = FastAPI(title="面向教学的智能体驱动量化算法策略平台", version="0.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins, allow_methods=["*"],
                    allow_headers=["*"])
+# 回测报告 JSON 较大（约 1 MB），压缩后约为原来的五分之一；SSE 流式响应默认不压缩
+app.add_middleware(GZipMiddleware, minimum_size=2048)
 
 
 @app.exception_handler(ParamError)
@@ -136,7 +140,11 @@ def backtests(limit: int = Query(50, le=500), session_id: str | None = None):
 
 
 @app.get("/api/backtests/{result_id}")
-def backtest(result_id: str):
+def backtest(result_id: str, request: Request):
+    # 存档本身就是 gzip 压缩的 JSON：浏览器支持 gzip 时原样返回，省去解压、解析和重新压缩
+    path = services.result_path(result_id)
+    if "gzip" in request.headers.get("accept-encoding", "") and path.exists():
+        return Response(path.read_bytes(), media_type="application/json", headers={"Content-Encoding": "gzip"})
     return services.load_payload(result_id)
 
 
@@ -299,7 +307,14 @@ _dist = ROOT_DIR / "frontend" / "dist"
 if _dist.exists():
     app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
 
+    _dist_root = _dist.resolve()
+
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
-        f = _dist / path
-        return FileResponse(f if path and f.is_file() else _dist / "index.html")
+        if path.startswith("api/") or path == "api":
+            raise HTTPException(404, "接口不存在")
+        # 只允许返回前端构建目录内的文件，防止 ../ 路径穿越读取服务器上的其他文件（如密钥）
+        f = (_dist_root / path).resolve()
+        if path and f.is_file() and f.is_relative_to(_dist_root):
+            return FileResponse(f)
+        return FileResponse(_dist_root / "index.html")

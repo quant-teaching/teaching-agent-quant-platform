@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache, lru_cache
 from typing import Literal
 
@@ -112,6 +112,17 @@ class Bars:
     def dates(self) -> pd.DatetimeIndex:
         return self.close.index
 
+    def truncate(self, end: str | pd.Timestamp) -> Bars:
+        """截取 end 及以前的数据（返回新对象，不修改缓存中的原始数据）。"""
+        end_ts = pd.Timestamp(end)
+        cut = lambda df: df.loc[:end_ts]  # noqa: E731
+        return replace(
+            self, open=cut(self.open), high=cut(self.high), low=cut(self.low), close=cut(self.close),
+            volume=cut(self.volume), exec_open=cut(self.exec_open), mark_close=cut(self.mark_close),
+            mark_pre_close=cut(self.mark_pre_close), tradable=cut(self.tradable), roll=cut(self.roll),
+            contract=cut(self.contract), extra={k: cut(v) for k, v in self.extra.items()},
+        )
+
     def returns(self) -> pd.DataFrame:
         """日收益率（用执行价体系计算，期货换月当天不含价差）。"""
         r = self.mark_close / self.mark_pre_close - 1
@@ -124,8 +135,21 @@ def _wide(df: pd.DataFrame, col: str, index: pd.DatetimeIndex, symbols: list[str
 
 
 def load_bars(symbols: list[str], end: str | pd.Timestamp | None = None) -> Bars:
-    """加载 symbols 自有数据以来到 end 的全部日线。指标需要的预热期由策略自行利用。"""
-    end_ts = pd.Timestamp(end) if end is not None else None
+    """加载 symbols 自有数据以来到 end 的全部日线。指标需要的预热期由策略自行利用。
+
+    全部历史按标的池缓存：同一标的池反复回测（不同区间、参数对比、组合）时不再重复整理宽表。
+    回测时直接使用全部历史即可，引擎只撮合区间内的交易日；策略信号只依赖过去的数据
+    （见 tests/test_strategies.py::test_no_lookahead），所以多出的未来数据不影响结果。
+    返回的 Bars 被多次回测共享，策略和引擎只能读取、不能原地修改。
+    """
+    full = _load_bars(tuple(symbols))
+    return full if end is None else full.truncate(end)
+
+
+@lru_cache(maxsize=16)
+def _load_bars(symbols_t: tuple[str, ...]) -> Bars:
+    symbols = list(symbols_t)
+    end_ts = None
     types = {s: asset_type_of(s) for s in symbols}
     frames = []
     by_type: dict[str, list[str]] = {}
@@ -166,7 +190,8 @@ def load_bars(symbols: list[str], end: str | pd.Timestamp | None = None) -> Bars
     data["date"] = pd.to_datetime(data["date"])
     if end_ts is not None:
         data = data[data["date"] <= end_ts]
-    missing = [s for s in symbols if s not in set(data["symbol"])]
+    present = set(data["symbol"].unique())
+    missing = [s for s in symbols if s not in present]
     if missing:
         raise DataError(f"以下标的在数据快照中没有行情：{', '.join(missing)}")
 

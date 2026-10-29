@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import atexit
 import gzip
 import json
+import multiprocessing
 import uuid
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
@@ -30,6 +33,33 @@ SUMMARY_KEYS = ("total_return", "annual_return", "max_drawdown", "sharpe", "calm
 
 class NotFound(LookupError):
     pass
+
+
+# ---------------------------------------------------------------- 计算进程池
+
+_pool: ProcessPoolExecutor | None = None
+
+
+def compute(fn, *args, **kwargs):
+    """在进程池中执行回测计算（CPU 密集，避免多人同时回测时互相排队），返回结果对象。
+
+    每个工作进程各自缓存行情数据；保存结果、写数据库仍在主进程完成。
+    """
+    global _pool
+    workers = get_settings().backtest_workers
+    if workers <= 0:
+        return fn(*args, **kwargs)
+    if _pool is None:
+        _pool = ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
+        atexit.register(shutdown_pool)
+    return _pool.submit(fn, *args, **kwargs).result()
+
+
+def shutdown_pool() -> None:
+    global _pool
+    if _pool is not None:
+        _pool.shutdown(wait=False, cancel_futures=True)
+        _pool = None
 
 
 @dataclass
@@ -144,35 +174,58 @@ def _results_dir():
     return p
 
 
-def _universe_label(result: BacktestResult) -> str:
-    n = len(result.universe)
-    if n <= 3:
-        from quant.data.loader import symbol_name
-        return "、".join(symbol_name(s) for s in result.universe)
-    return f"{n} 个标的"
+def _universe_label(universe: list[dict[str, str]]) -> str:
+    if len(universe) <= 3:
+        return "、".join(u["name"] for u in universe)
+    return f"{len(universe)} 个标的"
 
 
-def save_result(result: BacktestResult, session_id: str | None, source: str) -> dict[str, Any]:
+def persist_files(result: BacktestResult) -> dict[str, Any]:
+    """生成报告 JSON 并写入存档文件。可以在工作进程中执行，返回给主进程的只有报告字典。"""
     payload = result_payload(result)
-    path = _results_dir() / f"{result.id}.json.gz"
-    with gzip.open(path, "wt", encoding="utf-8") as f:
+    with gzip.open(_results_dir() / f"{result.id}.json.gz", "wt", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
     if not result.positions.empty:
         result.positions.to_parquet(_results_dir() / f"{result.id}.positions.parquet", index=False)
+    return payload
+
+
+def insert_record(payload: dict[str, Any], session_id: str | None, source: str) -> None:
     summary = {k: payload["metrics"].get(k) for k in SUMMARY_KEYS}
     hs = payload["benchmarks"].get("000300")
     if hs:
         summary["hs300_annual_return"] = hs["annual_return"]
     with Session(engine()) as s:
         s.add(BacktestRecord(
-            id=result.id, kind=result.kind, title=result.title, strategy_id=result.strategy["id"],
-            category=result.strategy.get("category", ""), start=result.config["start"], end=result.config["end"],
-            summary_json=json.dumps(summary, ensure_ascii=False),
+            id=payload["id"], kind=payload["kind"], title=payload["title"], strategy_id=payload["strategy"]["id"],
+            category=payload["strategy"].get("category", ""), start=payload["config"]["start"],
+            end=payload["config"]["end"], summary_json=json.dumps(summary, ensure_ascii=False),
             params_json=json.dumps(payload["params"], ensure_ascii=False),
-            universe_label=_universe_label(result), session_id=session_id, source=source,
+            universe_label=_universe_label(payload["universe"]), session_id=session_id, source=source,
         ))
         s.commit()
+
+
+def save_result(result: BacktestResult, session_id: str | None, source: str) -> dict[str, Any]:
+    payload = persist_files(result)
+    insert_record(payload, session_id, source)
     return payload
+
+
+def _single_job(strategy_id: str, params: dict[str, Any], universe, config, title: str,
+                derived: dict[str, str] | None) -> dict[str, Any]:
+    """工作进程中执行：回测 → 生成报告 → 写存档文件。"""
+    result = run_backtest(strategy_id, params, universe, config, title=title)
+    if derived:
+        result.strategy.update(derived)
+    return persist_files(result)
+
+
+def _portfolio_job(spec: PortfolioSpec, config) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    result, subs = run_portfolio(spec, config)
+    for comp, sub in zip(result.components, subs):
+        comp["result_id"] = sub.id
+    return persist_files(result), [persist_files(sub) for sub in subs]
 
 
 def run_single(ref: str, params: dict[str, Any] | None, universe: str | list[str] | None,
@@ -180,10 +233,10 @@ def run_single(ref: str, params: dict[str, Any] | None, universe: str | list[str
                source: str = "manual") -> dict[str, Any]:
     entry = get_entry(ref)
     merged = {**entry.base_params, **(params or {})}
-    result = run_backtest(entry.cls.id, merged, universe or entry.universe, config, title=entry.name)
-    if entry.derived:
-        result.strategy.update(derived_id=entry.id, derived_name=entry.name)
-    return save_result(result, session_id, source)
+    derived = {"derived_id": entry.id, "derived_name": entry.name} if entry.derived else None
+    payload = compute(_single_job, entry.cls.id, merged, universe or entry.universe, config, entry.name, derived)
+    insert_record(payload, session_id, source)
+    return payload
 
 
 def run_portfolio_service(components: list[dict[str, Any]], config: dict[str, Any] | BacktestConfig,
@@ -196,17 +249,22 @@ def run_portfolio_service(components: list[dict[str, Any]], config: dict[str, An
             strategy_id=entry.cls.id, params={**entry.base_params, **(c.get("params") or {})},
             universe=c.get("universe") or entry.universe, weight=c.get("weight"), label=entry.name,
         ))
-    result, subs = run_portfolio(PortfolioSpec(components=comps, rebalance=rebalance), config)
+    payload, subs = compute(_portfolio_job, PortfolioSpec(components=comps, rebalance=rebalance), config)
     for sub in subs:  # 子策略也存档，方便单独查看
-        save_result(sub, session_id, source)
-    for comp, sub in zip(result.components, subs):
-        comp["result_id"] = sub.id
-    return save_result(result, session_id, source)
+        insert_record(sub, session_id, source)
+    insert_record(payload, session_id, source)
+    return payload
 
 
-@lru_cache(maxsize=64)
+def result_path(result_id: str):
+    if not result_id.isalnum():
+        raise NotFound(f"回测结果 {result_id} 不存在")
+    return _results_dir() / f"{result_id}.json.gz"
+
+
+@lru_cache(maxsize=8)  # 一份完整报告在内存中约十几 MB，只缓存最近几份
 def load_payload(result_id: str) -> dict[str, Any]:
-    path = _results_dir() / f"{result_id}.json.gz"
+    path = result_path(result_id)
     if not path.exists():
         raise NotFound(f"回测结果 {result_id} 不存在")
     with gzip.open(path, "rt", encoding="utf-8") as f:
@@ -217,7 +275,7 @@ def holdings_on(result_id: str, date: str) -> list[dict[str, Any]]:
     import pandas as pd
 
     from quant.data.loader import symbol_name
-    p = _results_dir() / f"{result_id}.positions.parquet"
+    p = result_path(result_id).with_name(f"{result_id}.positions.parquet")
     if not p.exists():
         return []
     df = pd.read_parquet(p)
@@ -243,6 +301,7 @@ def list_records(limit: int = 50, session_id: str | None = None) -> list[dict[st
 
 
 def delete_record(result_id: str) -> None:
+    result_path(result_id)  # 校验 id，防止路径穿越
     with Session(engine()) as s:
         r = s.get(BacktestRecord, result_id)
         if r:

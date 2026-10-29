@@ -64,19 +64,24 @@ def combine_navs(rets: pd.DataFrame, weights: np.ndarray, mask: pd.Series | None
     return pd.DataFrame(values, index=rets.index, columns=rets.columns)
 
 
-def diversification(rets: pd.DataFrame, port: pd.Series, weights: np.ndarray, labels: list[str]) -> dict:
+def diversification(rets: pd.DataFrame, port: pd.Series, weights: np.ndarray, labels: list[str],
+                    contrib: pd.DataFrame | None = None) -> dict:
     """分散化分析：
     - 相关系数矩阵：子策略日收益两两相关性，越低分散效果越好；
     - 分散化比率 = Σ(wᵢσᵢ) / σ组合，等于 1 表示没有分散效果，越大越好；
-    - 风险贡献 = wᵢ × Cov(rᵢ, r组合) / Var(r组合)，各项之和为 1。
+    - 风险贡献 = Cov(cᵢ, r组合) / Var(r组合)，cᵢ 为子策略按当日实际权重贡献的收益（wᵢ,ₜ × rᵢ,ₜ），
+      两次再平衡之间权重会漂移，用实际权重分解后各项之和严格为 1。
     """
     df = rets.dropna()
     vol = df.std(ddof=1) * np.sqrt(252)
     pv = port.reindex(df.index).std(ddof=1) * np.sqrt(252)
     corr = df.corr()
     var_p = port.reindex(df.index).var(ddof=1)
-    rc = [float(weights[i] * df.iloc[:, i].cov(port.reindex(df.index)) / var_p) if var_p > 0 else 0.0
-          for i in range(df.shape[1])]
+    pr = port.reindex(df.index)
+    if contrib is None:
+        contrib = df * weights
+    contrib = contrib.reindex(df.index)
+    rc = [float(contrib.iloc[:, i].cov(pr) / var_p) if var_p > 0 else 0.0 for i in range(df.shape[1])]
     k = len(labels)
     off = corr.to_numpy()[~np.eye(k, dtype=bool)]
     return {
@@ -158,7 +163,13 @@ def run_portfolio(spec: PortfolioSpec | dict, config: BacktestConfig | dict, tit
     for lb, s in zip(labels, subs):
         result.series[f"comp_{lb}"] = s.series["nav"].reindex(result.series.index).ffill()
         result.yearly[lb] = s.yearly["策略"]
-    div = diversification(rets.iloc[1:], port_ret, weights, labels)
+    # 每日开盘时各子账户的实际资金占比（首日为目标权重），用于风险贡献分解
+    start_share = values.shift(1).div(values.shift(1).sum(axis=1), axis=0)
+    start_share.iloc[0] = weights
+    if mask is not None:  # 再平衡日收盘后调回目标权重，次日的起始占比为目标权重
+        rb = mask.reindex(values.index).fillna(False).shift(1, fill_value=False).to_numpy(bool)
+        start_share.loc[rb] = weights
+    div = diversification(rets.iloc[1:], port_ret, weights, labels, start_share * rets.iloc[1:])
     result.diagnostics["diversification"] = div
     best_single_mdd = max(s.metrics["max_drawdown"] for s in subs)
     result.diagnostics["drawdown_vs_components"] = {

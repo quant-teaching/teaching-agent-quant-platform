@@ -22,7 +22,7 @@ const messages = ref<UiMessage[]>([])
 const input = ref('')
 const busy = ref(false)
 const loadingSession = ref(false)
-const showSessions = ref(true)
+const showSessions = ref(typeof window === 'undefined' || window.innerWidth > 900)
 const scroller = ref<HTMLElement | null>(null)
 const modelLabel = ref('')
 let abort: AbortController | null = null
@@ -76,6 +76,7 @@ async function openSession(id: string | null) {
   sessionId.value = id
   messages.value = []
   panelId.value = null
+  if (window.innerWidth <= 900) showSessions.value = false
   if (!id) return
   loadingSession.value = true
   try {
@@ -373,4 +374,12 @@ onMounted(async () => {
 .panel-body { flex: 1; overflow-y: auto; padding: 16px 18px 28px; }
 @media (max-width: 1280px) { .with-panel .sessions { display: none; } }
 @media (max-width: 1000px) { .panel { position: fixed; inset: 0 0 0 64px; width: auto; min-width: 0; z-index: 20; } .sugs { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .sessions { position: fixed; left: 64px; top: 0; bottom: 0; z-index: 15; box-shadow: var(--shadow-md); }
+  .inner { padding: 8px 14px 20px; }
+  .composer-wrap { padding: 8px 12px 10px; }
+  .welcome { padding-top: 28px; }
+  .welcome h1 { font-size: 20px; }
+  .model-badge { display: none; }
+}
 </style>
