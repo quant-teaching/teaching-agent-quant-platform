@@ -1,0 +1,90 @@
+# ===== 不上传的本地文档 =====
+记忆.md
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# ===== 密钥与敏感信息 =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+secrets/
+credentials*.json
+*secret*.json
+*.token
+hosts.yml
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# ===== Node / 前端 =====
+node_modules/
+.pnpm-store/
+.npm/
+.next/
+.nuxt/
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# ===== 构建产物 =====
+dist/
+build/
+out/
+target/
+*.whl
+
+# ===== 数据、缓存与运行产物 =====
+data/raw/
+data/cache/
+cache/
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.db
+*.sqlite
+*.sqlite3
+vector_store/
+chroma/
+faiss_index/
+backtest_results/
+reports/output/
+logs/
+*.log
+
+# ===== 媒体大文件（演示视频等另行提交） =====
+*.mp4
+*.mov
+*.avi
+*.zip
+*.tar.gz
+*.7z
+
+# ===== 编辑器与系统 =====
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
