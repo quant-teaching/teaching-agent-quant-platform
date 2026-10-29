@@ -1,0 +1,25 @@
+[Unit]
+Description=面向教学的智能体驱动量化算法策略平台
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=quant
+Group=quant
+WorkingDirectory=/opt/quant-platform/backend
+# 小内存服务器：回测在请求线程内计算，不另开进程池
+Environment=BACKTEST_WORKERS=0 PYTHONUTF8=1 PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/quant-platform/backend/.venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8650 --proxy-headers --forwarded-allow-ips=127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=5
+# 内存上限：超过 MemoryHigh 开始回收，超过 MemoryMax 被结束后自动重启，不影响服务器上的其他服务
+MemoryHigh=600M
+MemoryMax=800M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/quant-platform/data
+
+[Install]
+WantedBy=multi-user.target

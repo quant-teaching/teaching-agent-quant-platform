@@ -52,7 +52,7 @@ copy .env.example .env   # 可选，同上
 .\start.bat              # 服务就绪后会自动打开浏览器
 ```
 
-打开 <http://127.0.0.1:8000>。开发模式、数据更新、常见问题见 **[部署说明](docs/部署说明.md)**。
+打开 <http://127.0.0.1:8000>。部署到 Linux 服务器：`./deploy/deploy.sh root@服务器IP .env`（最小化安装，约 620 MB 磁盘、400 MB 内存，见部署说明）。开发模式、数据更新、常见问题见 **[部署说明](docs/部署说明.md)**。
 
 试试这些说法：
 
@@ -97,6 +97,7 @@ flowchart LR
 │   └── components/               # 对话消息与卡片、回测报告与图表、参数表单
 ├── data/market/                  # 行情快照（随仓库提交，保证可复现）
 ├── docs/                         # 设计文档、算法库说明、部署说明、测试报告
+├── deploy/                       # 服务器一键部署：打包上传、最小化安装、systemd、Nginx 示例
 ├── start.sh                      # 一键启动（macOS / Linux）
 └── start.bat / start.ps1         # 一键启动（Windows）
 ```
