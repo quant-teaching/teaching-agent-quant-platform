@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { Layers, MessageSquareText, Trash2 } from 'lucide-vue-next'
+import { Award, FlaskConical, History, Layers, MessageSquareText, Trash2, Trophy } from 'lucide-vue-next'
 import { NButton, NDataTable, NInput, NPopconfirm, NRadioButton, NRadioGroup, useMessage, type DataTableColumns } from 'naive-ui'
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, type BacktestRecord } from '@/api/client'
+import CountUp from '@/components/common/CountUp.vue'
+import PageHero from '@/components/common/PageHero.vue'
 import { num, pct, signClass, timeAgo } from '@/utils/format'
 
 const router = useRouter()
@@ -23,6 +25,12 @@ async function remove(id: string) {
   toast.success('已删除')
 }
 
+// 横幅统计：记录数、对话中发起的次数、最高总收益、最高夏普（只做回顾，不代表未来表现）
+const stats = computed(() => {
+  const r = rows.value
+  const best = (k: string) => r.reduce<BacktestRecord | null>((m, x) => (x.summary[k] != null && (m === null || x.summary[k] > (m.summary[k] ?? -Infinity)) ? x : m), null)
+  return { total: r.length, chat: r.filter((x) => x.source === 'chat').length, ret: best('total_return'), sharpe: best('sharpe') }
+})
 const list = computed(() => rows.value.filter((r) => (kind.value === 'all' || r.kind === kind.value) && (!q.value || r.title.includes(q.value))))
 const metric = (key: string, signed = false, ratio = false) => (r: BacktestRecord) => {
   const v = r.summary[key]
@@ -61,12 +69,14 @@ onMounted(load)
 
 <template>
   <div class="page">
-    <div class="page-head">
-      <div>
-        <h1>回测记录</h1>
-        <p>回测实验室、组合实验室和对话中执行的所有回测都保存在这里，点击查看完整报告；表头可排序</p>
+    <PageHero title="回测记录" tone="rose" :icon="History" desc="回测实验室、组合实验室和对话中执行的所有回测都保存在这里，点击查看完整报告；表头可排序">
+      <div class="hero-stats">
+        <div class="hero-stat"><span class="ic-tile tone-rose"><FlaskConical :size="16" /></span><div><div class="v"><CountUp :value="String(stats.total)" /></div><div class="l">回测总数</div></div></div>
+        <div class="hero-stat"><span class="ic-tile tone-violet"><MessageSquareText :size="16" /></span><div><div class="v"><CountUp :value="String(stats.chat)" /></div><div class="l">来自智能助手</div></div></div>
+        <div class="hero-stat"><span class="ic-tile tone-amber"><Trophy :size="16" /></span><div><div class="v num" :class="signClass(stats.ret?.summary.total_return)"><CountUp :value="stats.ret ? pct(stats.ret.summary.total_return, 1, true) : '—'" /></div><div class="l" :title="stats.ret?.title">最高总收益 · {{ stats.ret?.title ?? '暂无' }}</div></div></div>
+        <div class="hero-stat"><span class="ic-tile tone-teal"><Award :size="16" /></span><div><div class="v num"><CountUp :value="stats.sharpe ? num(stats.sharpe.summary.sharpe) : '—'" /></div><div class="l" :title="stats.sharpe?.title">最高夏普 · {{ stats.sharpe?.title ?? '暂无' }}</div></div></div>
       </div>
-    </div>
+    </PageHero>
     <div class="toolbar">
       <NRadioGroup v-model:value="kind">
         <NRadioButton value="all">全部 {{ rows.length }}</NRadioButton>

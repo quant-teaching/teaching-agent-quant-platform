@@ -40,11 +40,11 @@ async function changePassword() {
 }
 
 const items = [
-  { to: '/chat', name: 'chat', label: '智能助手', icon: MessageSquareText },
-  { to: '/library', name: 'library', label: '算法库', icon: BookOpen, also: ['strategy'] },
-  { to: '/backtest', name: 'backtest', label: '回测实验室', icon: FlaskConical },
-  { to: '/portfolio', name: 'portfolio', label: '组合实验室', icon: Layers },
-  { to: '/history', name: 'history', label: '回测记录', icon: History, also: ['report'] },
+  { to: '/chat', name: 'chat', label: '智能助手', icon: MessageSquareText, tone: 'blue' },
+  { to: '/library', name: 'library', label: '算法库', icon: BookOpen, also: ['strategy'], tone: 'violet' },
+  { to: '/backtest', name: 'backtest', label: '回测实验室', icon: FlaskConical, tone: 'teal' },
+  { to: '/portfolio', name: 'portfolio', label: '组合实验室', icon: Layers, tone: 'amber' },
+  { to: '/history', name: 'history', label: '回测记录', icon: History, also: ['report'], tone: 'rose' },
 ]
 
 function active(it: (typeof items)[number]) {
@@ -66,8 +66,8 @@ const activeIndex = computed(() => items.findIndex(active))
 
     <nav class="nav">
       <span class="indicator" :class="{ hidden: activeIndex < 0 }" :style="{ transform: `translateY(${Math.max(activeIndex, 0) * 40}px)` }" />
-      <RouterLink v-for="it in items" :key="it.to" :to="it.to" class="nav-item" :class="{ active: active(it) }">
-        <component :is="it.icon" :size="18" :stroke-width="1.8" />
+      <RouterLink v-for="it in items" :key="it.to" :to="it.to" class="nav-item" :class="[{ active: active(it) }, `tone-${it.tone}`]">
+        <span class="nav-ic"><component :is="it.icon" :size="16" :stroke-width="2" /></span>
         <span>{{ it.label }}</span>
       </RouterLink>
     </nav>
@@ -152,13 +152,19 @@ const activeIndex = computed(() => items.findIndex(active))
   color: var(--text-2); font-size: 14px; transition: background 0.15s, color 0.2s;
 }
 .nav-item svg { transition: transform 0.25s var(--ease-spring); }
+.nav-ic {
+  width: 26px; height: 26px; margin-left: -4px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0;
+  color: var(--tone); background: var(--tone-soft); transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+}
+.nav-item.active .nav-ic { color: #fff; background: var(--tone); box-shadow: 0 4px 12px color-mix(in srgb, var(--tone) 40%, transparent); }
 .nav-item:hover { background: var(--surface-3); color: var(--text-1); }
-.nav-item:hover svg { transform: scale(1.12); }
+.nav-item:hover svg { transform: scale(1.15) rotate(-6deg); }
 .nav .nav-item:hover { background: color-mix(in srgb, var(--surface-3) 60%, transparent); }
 .nav-item.active { color: var(--primary-ink); font-weight: 600; }
 .bottom .nav-item.active { background: var(--primary-soft); }
 .spacer { flex: 1; }
 .notice {
+  background: linear-gradient(150deg, var(--surface-2), var(--warn-soft)) !important;
   font-size: 11.5px; line-height: 1.6; color: var(--text-3);
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
   padding: 10px 12px; margin-bottom: 10px;
@@ -190,7 +196,8 @@ const activeIndex = computed(() => items.findIndex(active))
 .icon-btn:hover svg { transform: rotate(40deg); }
 @media (max-width: 900px) {
   .sidebar { width: 64px; padding: 14px 10px; }
-  .brand div, .nav-item span, .notice, .who, .chev { display: none; }
+  .brand div, .nav-item > span:not(.nav-ic), .notice, .who, .chev { display: none; }
+  .nav-ic { margin-left: 0; }
   .user { justify-content: center; padding: 6px 0; border: 0; background: none; }
   .brand { justify-content: center; padding-bottom: 14px; }
   .nav-item { justify-content: center; padding: 0; }

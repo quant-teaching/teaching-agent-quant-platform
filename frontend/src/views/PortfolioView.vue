@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmptyChart from '@/components/common/EmptyChart.vue'
 import { Layers, Play, Plus, X } from 'lucide-vue-next'
 import { NButton, NInputNumber, NRadioButton, NRadioGroup, NSelect, NSpin, NSwitch, useMessage } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
@@ -102,7 +103,7 @@ onMounted(() => catalog.load().catch(() => {}))
       <NSpin :show="running" description="正在回测各子策略并合成组合…">
         <BacktestReport v-if="result" :key="result.id" :data="result" />
         <div v-else class="empty card">
-          <Layers :size="36" class="muted" />
+          <EmptyChart />
           <h3>把多个策略组合在一起</h3>
           <p class="muted">相关性低的策略组合后，组合的波动和回撤往往小于单个策略——这就是分散化。回测后可以在「组合分析」中查看相关系数、分散化比率和风险贡献。</p>
         </div>

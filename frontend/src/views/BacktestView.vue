@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import EmptyChart from '@/components/common/EmptyChart.vue'
 import { FlaskConical, Play, RotateCcw } from 'lucide-vue-next'
 import { NButton, NSelect, NSpin, useMessage } from 'naive-ui'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -94,7 +95,7 @@ onMounted(async () => {
       <NSpin :show="running" description="正在回测…">
         <BacktestReport v-if="result" :key="result.id" :data="result" />
         <div v-else class="empty card">
-          <FlaskConical :size="36" class="muted" />
+          <EmptyChart />
           <h3>选择策略、设置参数后开始回测</h3>
           <p class="muted">回测引擎在每个交易日收盘生成信号、次日开盘成交，并模拟手续费、印花税、滑点、涨跌停与期货保证金。</p>
         </div>

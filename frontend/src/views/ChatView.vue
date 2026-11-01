@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookOpen, ChartLine, Layers, MessageSquarePlus, PanelLeft, PanelRightClose, Pencil, Send, Square, Trash2, Wand2 } from 'lucide-vue-next'
+import { BookOpen, ChartLine, Layers, MessageSquarePlus, PanelLeft, PanelRightClose, Pencil, Send, Square, Trash2, Wand2, ArrowUpRight, GraduationCap, Shuffle } from 'lucide-vue-next'
 import { NButton, NInput, NPopconfirm, NSpin, NTooltip, useMessage } from 'naive-ui'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -33,12 +33,12 @@ const panelData = ref<BacktestPayload | null>(null)
 const panelLoading = ref(false)
 
 const suggestions = [
-  { icon: Wand2, title: '调参 + 回测', text: '调出海龟交易期货策略，把 ATR 周期改为 22，单笔仓位上限 0.15，回测时间 2021-01-01 到 2024-12-30，标的选择国内商品期货主力合约' },
-  { icon: Layers, title: '多策略组合', text: '选取双均线股票策略、动量选股策略，做等权组合，回测 2022-01-01 至 2025-06-30，对比沪深 300' },
-  { icon: BookOpen, title: '算法教学', text: '给我讲下布林带股票策略原理，它的可调参数是什么' },
-  { icon: ChartLine, title: '回测解读', text: '使用双均线策略，对沪深 A 股回测 2022-01-01 至 2025-12-31，并分析它在震荡市的表现' },
-  { icon: BookOpen, title: '概念问答', text: '海龟交易法则原理是什么，适合什么行情？' },
-  { icon: Layers, title: '分散化', text: '把海龟交易法则和均值回归做等权组合回测 2021-01-01 到 2025-12-31，分析两者是否互补' },
+  { tone: 'blue', icon: Wand2, title: '调参 + 回测', text: '调出海龟交易期货策略，把 ATR 周期改为 22，单笔仓位上限 0.15，回测时间 2021-01-01 到 2024-12-30，标的选择国内商品期货主力合约' },
+  { tone: 'amber', icon: Layers, title: '多策略组合', text: '选取双均线股票策略、动量选股策略，做等权组合，回测 2022-01-01 至 2025-06-30，对比沪深 300' },
+  { tone: 'violet', icon: BookOpen, title: '算法教学', text: '给我讲下布林带股票策略原理，它的可调参数是什么' },
+  { tone: 'teal', icon: ChartLine, title: '回测解读', text: '使用双均线策略，对沪深 A 股回测 2022-01-01 至 2025-12-31，并分析它在震荡市的表现' },
+  { tone: 'rose', icon: GraduationCap, title: '概念问答', text: '海龟交易法则原理是什么，适合什么行情？' },
+  { tone: 'teal', icon: Shuffle, title: '分散化', text: '把海龟交易法则和均值回归做等权组合回测 2021-01-01 到 2025-12-31，分析两者是否互补' },
 ]
 
 async function loadSessions() {
@@ -281,13 +281,14 @@ onMounted(async () => {
       <div ref="scroller" class="scroll">
         <div class="inner">
           <NSpin v-if="loadingSession" class="loading" />
+          <div v-if="empty" class="aurora" aria-hidden="true"><span class="a1" /><span class="a2" /><span class="a3" /></div>
           <div v-if="empty" class="welcome">
             <div class="hero-icon"><span class="ring" /><img src="/logo.svg" width="44" height="44" alt="" /></div>
             <h1>你好，我是量化策略教学助手</h1>
             <p>用自然语言调取 22 种经典量化算法、修改参数、执行历史回测，我会解读报告并解释每一条优化建议背后的原理。</p>
             <div class="sugs stagger">
-              <button v-for="s in suggestions" :key="s.text" class="sug" @click="send(s.text)">
-                <div class="sug-title"><component :is="s.icon" :size="15" /> {{ s.title }}</div>
+              <button v-for="s in suggestions" :key="s.text" class="sug" :class="`tone-${s.tone}`" @click="send(s.text)">
+                <div class="sug-title"><span class="ic-tile"><component :is="s.icon" :size="15" /></span> {{ s.title }}<ArrowUpRight :size="15" class="go" /></div>
                 <div class="sug-text">{{ s.text }}</div>
               </button>
             </div>
@@ -369,10 +370,23 @@ onMounted(async () => {
 .welcome p { color: var(--text-2); margin: 0 auto 28px; max-width: 560px; }
 .sugs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; text-align: left; }
 .sug { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px; cursor: pointer; font-family: inherit; color: inherit; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; text-align: left; }
-.sug:hover { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); box-shadow: var(--shadow-md); transform: translateY(-3px); }
+.sug:hover { border-color: color-mix(in srgb, var(--tone) 50%, var(--border)); box-shadow: var(--shadow-md); transform: translateY(-3px); }
 .sug-title svg { transition: transform 0.3s var(--ease-spring); }
-.sug:hover .sug-title svg { transform: scale(1.2) rotate(-8deg); }
-.sug-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13.5px; color: var(--primary-ink); margin-bottom: 4px; }
+.sug:hover .sug-title .ic-tile svg { transform: scale(1.2) rotate(-8deg); }
+.sug { position: relative; overflow: hidden; background: color-mix(in srgb, var(--surface) 82%, transparent) !important; backdrop-filter: blur(8px); }
+.sug::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tone); transform: scaleY(0); transition: transform 0.3s var(--ease-out); }
+.sug:hover::before { transform: scaleY(1); }
+.sug-title { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 13.5px; color: var(--text-1); margin-bottom: 6px; }
+.sug-title .ic-tile { width: 28px; height: 28px; }
+.go { margin-left: auto; color: var(--tone); opacity: 0; transform: translate(-4px, 4px); transition: opacity 0.2s, transform 0.3s var(--ease-out); }
+.sug:hover .go { opacity: 1; transform: none; }
+.inner { position: relative; }
+.aurora { position: absolute; left: 50%; top: 0; width: 900px; max-width: 100%; height: 460px; transform: translateX(-50%); pointer-events: none; filter: blur(60px); opacity: 0.55; }
+.aurora span { position: absolute; border-radius: 50%; animation: drift 16s ease-in-out infinite; }
+.aurora .a1 { width: 320px; height: 220px; left: 12%; top: 30px; background: var(--t-blue-soft); background: color-mix(in srgb, var(--t-blue) 30%, transparent); }
+.aurora .a2 { width: 280px; height: 200px; right: 12%; top: 70px; background: color-mix(in srgb, var(--t-violet) 26%, transparent); animation-delay: -5s; }
+.aurora .a3 { width: 260px; height: 180px; left: 38%; top: 180px; background: color-mix(in srgb, var(--t-teal) 22%, transparent); animation-delay: -10s; }
+.welcome { position: relative; }
 .sug-text { font-size: 12.5px; color: var(--text-2); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 .composer-wrap { flex-shrink: 0; padding: 10px 24px 14px; }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ArrowDown, ArrowUp, CircleCheck, CircleX, KeyRound, Link2, Loader2, LockKeyhole, Pencil, Plus, RefreshCw, Search, Server, Trash2, Users, X, Zap } from 'lucide-vue-next'
+import PageHero from '@/components/common/PageHero.vue'
+import { ArrowDown, ArrowUp, CircleCheck, CircleX, KeyRound, Link2, Loader2, LockKeyhole, Pencil, Plus, RefreshCw, Search, Server, Trash2, Users, X, Zap, Cpu } from 'lucide-vue-next'
 import {
   NButton, NCheckbox, NDataTable, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSlider, NSwitch, NTag, NTooltip, useMessage,
   type DataTableColumns,
@@ -288,12 +289,7 @@ onMounted(load)
 
 <template>
   <div class="page">
-    <div class="page-head">
-      <div>
-        <h1>模型设置</h1>
-        <p>智能体通过 OpenAI 兼容接口调用大模型。可以接入多个服务商，并设置主模型失败时自动切换的备用模型。</p>
-      </div>
-    </div>
+    <PageHero title="模型设置" tone="teal" :icon="Cpu" desc="智能体通过 OpenAI 兼容接口调用大模型。可以接入多个服务商，并设置主模型失败时自动切换的备用模型。" />
 
     <div v-if="lock.locked" class="lock-bar">
       <span class="lock-ic"><LockKeyhole :size="18" /></span>
