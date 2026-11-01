@@ -1,0 +1,100 @@
+/* 视觉增强与动效：品牌渐变、背景光晕、入场动画、悬停反馈。系统开启"减少动态效果"时全部关闭。 */
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --brand-grad: linear-gradient(135deg, #1c5cab 0%, #2a78d6 55%, #4a95ea 100%);
+  --brand-text: linear-gradient(120deg, #1c5cab, #2a78d6 50%, #3f9be8);
+  --glow-1: rgba(42, 120, 214, 0.09);
+  --glow-2: rgba(74, 149, 234, 0.07);
+}
+:root[data-theme="dark"] { --brand-text: linear-gradient(120deg, #86b6ef, #5aa2f0 50%, #9ec5f4); --glow-1: rgba(57, 135, 229, 0.1); --glow-2: rgba(57, 135, 229, 0.05); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --brand-text: linear-gradient(120deg, #86b6ef, #5aa2f0 50%, #9ec5f4); --glow-1: rgba(57, 135, 229, 0.1); --glow-2: rgba(57, 135, 229, 0.05); }
+}
+
+/* 主区域背景：右上、左下两团柔和光晕 */
+body {
+  background:
+    radial-gradient(900px 520px at 100% -8%, var(--glow-1), transparent 62%),
+    radial-gradient(700px 480px at 12% 108%, var(--glow-2), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* 页面标题：渐变文字 + 下方短色条 */
+.page-head h1 {
+  background: var(--brand-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  position: relative;
+  padding-bottom: 6px;
+}
+.page-head h1::after {
+  content: "";
+  position: absolute; left: 0; bottom: 0;
+  width: 28px; height: 3px; border-radius: 3px;
+  background: var(--brand-grad);
+  transform-origin: left;
+  animation: bar-in 0.6s var(--ease-out) 0.15s both;
+}
+
+/* 卡片：统一过渡，交互卡片悬停抬起 */
+.card { transition: border-color 0.2s, box-shadow 0.25s var(--ease-out), transform 0.25s var(--ease-out); }
+.card.block:hover { box-shadow: var(--shadow-md); }
+
+/* 页面内容依次入场：.page 的直接子元素逐个上浮 */
+.page > * { animation: rise 0.5s var(--ease-out) both; }
+.page > :nth-child(2) { animation-delay: 0.05s; }
+.page > :nth-child(3) { animation-delay: 0.1s; }
+.page > :nth-child(4) { animation-delay: 0.15s; }
+.page > :nth-child(5) { animation-delay: 0.2s; }
+.page > :nth-child(n + 6) { animation-delay: 0.25s; }
+
+/* 网格/列表逐项入场：给容器加 .stagger */
+.stagger > * { animation: rise 0.45s var(--ease-out) both; }
+.stagger > :nth-child(1) { animation-delay: 0.02s; }
+.stagger > :nth-child(2) { animation-delay: 0.05s; }
+.stagger > :nth-child(3) { animation-delay: 0.08s; }
+.stagger > :nth-child(4) { animation-delay: 0.11s; }
+.stagger > :nth-child(5) { animation-delay: 0.14s; }
+.stagger > :nth-child(6) { animation-delay: 0.17s; }
+.stagger > :nth-child(7) { animation-delay: 0.2s; }
+.stagger > :nth-child(8) { animation-delay: 0.23s; }
+.stagger > :nth-child(9) { animation-delay: 0.26s; }
+.stagger > :nth-child(10) { animation-delay: 0.29s; }
+.stagger > :nth-child(n + 11) { animation-delay: 0.32s; }
+
+/* 按钮按下回弹 */
+.n-button:not(.n-button--disabled):active { transform: scale(0.97); }
+.n-button { transition: transform 0.12s var(--ease-out), background-color 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s !important; }
+.n-button--primary-type:not(.n-button--secondary):not(.n-button--disabled):hover { box-shadow: 0 4px 14px rgba(42, 120, 214, 0.32); }
+
+/* 弹窗：缩放淡入（Naive UI 自带过渡之上更柔和） */
+.n-modal.n-card { border-radius: 16px; }
+
+/* 骨架闪光（加载占位） */
+.shimmer {
+  background: linear-gradient(90deg, var(--surface-3) 25%, var(--surface-2) 50%, var(--surface-3) 75%) 0 0 / 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes bar-in { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(42, 120, 214, 0.35); } 100% { box-shadow: 0 0 0 14px rgba(42, 120, 214, 0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
+}
+
+/* 回测 / 组合实验室：左侧参数栏从左滑入，右侧结果上浮；空状态图标轻微漂浮 */
+.lab > .side { animation: slide-in 0.5s var(--ease-out) both; }
+.lab > .result { animation: rise 0.5s var(--ease-out) 0.08s both; }
+.lab .side-head { background: linear-gradient(90deg, var(--primary-soft), transparent 70%); }
+.lab .empty { border-style: dashed; background: linear-gradient(160deg, var(--surface), var(--surface-2)); }
+.lab .empty > svg { animation: float 3.5s ease-in-out infinite; color: var(--primary); opacity: 0.75; }
+@keyframes slide-in { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }

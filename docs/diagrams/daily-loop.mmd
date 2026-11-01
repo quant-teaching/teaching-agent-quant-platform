@@ -1,0 +1,10 @@
+sequenceDiagram
+  participant S as 策略
+  participant E as 引擎
+  Note over S: t-1 日收盘
+  S->>E: 目标权重（只用 t-1 日及以前的数据）
+  Note over E: t 日
+  E->>E: 1. 期货换月：按 t-1 收盘移仓，计费
+  E->>E: 2. 开盘撮合：目标权重 → 整手数量，先卖后买<br/>开盘价 ± 滑点成交；涨跌停/停牌/资金不足则顺延
+  E->>E: 3. 收盘盯市：股票按收盘价计市值，期货逐日结算盈亏
+  E->>E: 记录权益、持仓、成交、敞口

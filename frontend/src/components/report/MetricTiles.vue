@@ -2,6 +2,7 @@
 // 九项核心量化指标。收益类数字红涨绿跌；每项下方给出沪深 300 同口径对比，悬停显示指标含义
 import { NTooltip } from 'naive-ui'
 import { computed } from 'vue'
+import CountUp from '@/components/common/CountUp.vue'
 import type { BacktestPayload } from '@/api/client'
 import { num, pct, signClass } from '@/utils/format'
 
@@ -27,12 +28,12 @@ const tiles = computed(() => {
 </script>
 
 <template>
-  <div class="tiles" :style="{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }">
+  <div class="tiles stagger" :style="{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }">
     <NTooltip v-for="t in tiles" :key="t.label" placement="top" :delay="300">
       <template #trigger>
         <div class="tile">
           <div class="label">{{ t.label }}</div>
-          <div class="value num" :class="t.cls === 'down-dd' ? 'dd' : t.cls">{{ t.value }}</div>
+          <div class="value num" :class="t.cls === 'down-dd' ? 'dd' : t.cls"><CountUp :value="t.value" /></div>
           <div class="sub num">{{ t.sub }}</div>
         </div>
       </template>
@@ -45,9 +46,15 @@ const tiles = computed(() => {
 .tiles { display: grid; gap: 10px; }
 .tile {
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
-  padding: 11px 14px 10px; cursor: default; transition: border-color 0.15s;
+  padding: 11px 14px 10px; cursor: default; position: relative; overflow: hidden;
+  transition: border-color 0.2s, transform 0.25s var(--ease-out), box-shadow 0.25s var(--ease-out);
 }
-.tile:hover { border-color: var(--border-strong); }
+.tile::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 2px; background: var(--brand-grad);
+  transform: scaleX(0); transform-origin: left; transition: transform 0.35s var(--ease-out);
+}
+.tile:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.tile:hover::before { transform: scaleX(1); }
 .label { font-size: 12px; color: var(--text-3); }
 .value { font-size: 21px; font-weight: 650; line-height: 1.35; margin-top: 2px; letter-spacing: 0.2px; }
 .value.dd { color: var(--text-1); }

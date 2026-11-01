@@ -85,15 +85,25 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
 </template>
 
 <style scoped>
-.row { display: flex; gap: 12px; margin: 18px 0; }
+.row { display: flex; gap: 12px; margin: 18px 0; animation: msg-in 0.4s var(--ease-out) both; }
+.row.user { transform-origin: right bottom; }
+@keyframes msg-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
 .row.user { justify-content: flex-end; }
-.bubble { max-width: 78%; background: var(--primary); color: #fff; padding: 9px 14px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.6; box-shadow: var(--shadow-sm); }
-.avatar { width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); margin-top: 2px; }
+.bubble { max-width: 78%; background: var(--brand-grad); color: #fff; padding: 9px 14px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.6; box-shadow: var(--shadow-sm); }
+.avatar { width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; display: grid; place-items: center; background: var(--brand-grad); color: #fff; margin-top: 2px; box-shadow: 0 4px 12px rgba(42, 120, 214, 0.25); }
 .body { flex: 1; min-width: 0; }
 .text { margin: 4px 0; }
 .steps { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
 .step { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); font-size: 12.5px; padding: 3px 10px; border-radius: 999px; cursor: pointer; font-family: inherit; }
+.step { transition: border-color 0.2s, background 0.2s, color 0.2s; }
 .step:hover { border-color: var(--border-strong); }
+.step-wrap { animation: rise 0.35s var(--ease-out) both; }
+.step-wrap > :deep(:not(.step)) { animation: pop 0.4s var(--ease-out) both; }
+.step.running { border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); color: var(--primary-ink);
+  background: linear-gradient(90deg, var(--surface-2) 30%, var(--primary-soft) 50%, var(--surface-2) 70%) 0 0 / 220% 100%;
+  animation: shimmer 1.6s linear infinite; }
+.step.ok svg:first-child { animation: pop 0.35s var(--ease-spring) both; }
+.disclaimer, .foot { animation: rise 0.4s var(--ease-out) both; }
 .step.ok svg:first-child { color: var(--primary); }
 .step.error { color: var(--up); }
 .step-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

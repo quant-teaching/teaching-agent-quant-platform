@@ -4,6 +4,7 @@ import App from './App.vue'
 import { setUnauthorizedHandler } from './api/client'
 import { router } from './router'
 import './styles/base.css'
+import './styles/motion.css'
 import './charts/register'
 
 const app = createApp(App).use(createPinia()).use(router)

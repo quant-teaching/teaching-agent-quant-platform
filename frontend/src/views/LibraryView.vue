@@ -55,7 +55,7 @@ const counts = computed(() => ({
     </div>
 
     <NSpin :show="loading">
-      <div class="grid">
+      <div class="grid stagger" :key="cat + q">
         <RouterLink v-for="s in list" :key="s.id" :to="`/library/${s.id}`" class="card item">
           <div class="top">
             <span class="cat" :class="s.category">{{ s.category === 'futures' ? '期货' : '股票' }}</span>
@@ -78,8 +78,21 @@ const counts = computed(() => ({
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
-.item { padding: 16px 18px; display: flex; flex-direction: column; color: var(--text-1); transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s; }
-.item:hover { border-color: var(--primary); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.item { position: relative; overflow: hidden; padding: 16px 18px; display: flex; flex-direction: column; color: var(--text-1); }
+.item::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--brand-grad);
+  transform: scaleX(0); transform-origin: left; transition: transform 0.4s var(--ease-out);
+}
+.item::after {
+  content: ""; position: absolute; width: 180px; height: 180px; right: -70px; top: -90px; border-radius: 50%;
+  background: radial-gradient(closest-side, var(--primary-soft), transparent); opacity: 0; transition: opacity 0.3s;
+  pointer-events: none;
+}
+.item:hover { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); box-shadow: var(--shadow-md); transform: translateY(-3px); }
+.item:hover::before { transform: scaleX(1); }
+.item:hover::after { opacity: 1; }
+.item:hover h3 { color: var(--primary-ink); }
+h3 { transition: color 0.2s; }
 .top { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .cat { padding: 1px 8px; border-radius: 6px; font-weight: 600; }
 .cat.stock { background: var(--primary-soft); color: var(--primary-ink); }

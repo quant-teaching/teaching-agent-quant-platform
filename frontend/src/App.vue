@@ -63,6 +63,8 @@ const overrides = computed<GlobalThemeOverrides>(() => {
 .shell { display: flex; height: 100vh; }
 .main { flex: 1; min-width: 0; height: 100%; overflow-y: auto; }
 .main.full { overflow: hidden; }
-.fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.fade-enter-active { transition: opacity 0.28s var(--ease-out), transform 0.28s var(--ease-out); }
+.fade-leave-active { transition: opacity 0.12s ease, transform 0.12s ease; }
+.fade-enter-from { opacity: 0; transform: translateY(8px); }
+.fade-leave-to { opacity: 0; transform: translateY(-4px); }
 </style>

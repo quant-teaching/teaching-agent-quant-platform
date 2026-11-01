@@ -266,6 +266,13 @@ function onPick(date: string) {
 
 <style scoped>
 .report { display: flex; flex-direction: column; gap: 14px; }
+.report > * { animation: rise 0.5s var(--ease-out) both; }
+.report > :nth-child(2) { animation-delay: 0.06s; }
+.report > :nth-child(3) { animation-delay: 0.12s; }
+.report > :nth-child(n + 4) { animation-delay: 0.18s; }
+.block { animation: rise 0.45s var(--ease-out) both; }
+.block:nth-child(2) { animation-delay: 0.06s; }
+.block:nth-child(n + 3) { animation-delay: 0.12s; }
 .head h2 { font-size: 20px; font-weight: 650; margin: 0; }
 .compact .head h2 { font-size: 17px; }
 .title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

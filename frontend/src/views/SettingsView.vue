@@ -380,7 +380,7 @@ onMounted(load)
     </div>
 
     <NEmpty v-if="!providers.length" description="还没有模型接口，点击右上角添加" class="card card-pad" />
-    <div class="providers" :class="{ ro: lock.locked }">
+    <div class="providers stagger" :class="{ ro: lock.locked }">
       <div v-for="p in providers" :key="p.id" class="card provider" :class="{ disabled: !p.enabled }">
         <div class="p-head">
           <div class="p-icon"><Server :size="17" /></div>

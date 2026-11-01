@@ -1,0 +1,11 @@
+flowchart LR
+  A["单合约日线<br/>RB2405、RB2410、RB2501…"] --> B["t 日使用的合约 =<br/>t-1 日持仓量最大者<br/>（只向远月换）"]
+  B --> C["pre_close = 同一合约前一日收盘<br/>日收益 = close / pre_close - 1"]
+  C --> D["比例后复权因子<br/>（最新一段为 1）"]
+  D --> E["指标用复权价<br/>成交与盈亏用原始价"]
+  B --> F["次主力腿 .next<br/>比主力更远月份中持仓量最大者"]
+
+  classDef step fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+  classDef out fill:#dcfce7,stroke:#16a34a,color:#14532d
+  class A,B,C,D step
+  class E,F out

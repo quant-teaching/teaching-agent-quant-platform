@@ -1,0 +1,21 @@
+flowchart LR
+  UI["前端<br/>Vue 3 · Naive UI · ECharts"] -->|REST / SSE| API["FastAPI<br/>接口 · 登录鉴权"]
+  API --> AG["智能体中枢<br/>11 个工具 · 核验 · 免责 · 主备模型"]
+  API --> SVC["业务服务"]
+  AG --> SVC
+  AG --> KB["教学知识库<br/>jieba + BM25"]
+  SVC --> ST["算法库<br/>22 个策略"]
+  SVC --> EN["回测引擎<br/>撮合 · 成本 · 指标"]
+  SVC --> PF["组合模块<br/>加权合成 · 分散化"]
+  ST & EN & PF --> DATA[("行情快照<br/>股票 · 指数 · 行业 · 期货")]
+
+  classDef fe fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+  classDef api fill:#f1f5f9,stroke:#64748b,color:#1e293b
+  classDef agent fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef core fill:#dcfce7,stroke:#16a34a,color:#14532d
+  classDef data fill:#fef3c7,stroke:#d97706,color:#78350f
+  class UI fe
+  class API,SVC api
+  class AG,KB agent
+  class ST,EN,PF core
+  class DATA data

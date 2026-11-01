@@ -282,10 +282,10 @@ onMounted(async () => {
         <div class="inner">
           <NSpin v-if="loadingSession" class="loading" />
           <div v-if="empty" class="welcome">
-            <div class="hero-icon"><img src="/logo.svg" width="44" height="44" alt="" /></div>
+            <div class="hero-icon"><span class="ring" /><img src="/logo.svg" width="44" height="44" alt="" /></div>
             <h1>你好，我是量化策略教学助手</h1>
             <p>用自然语言调取 22 种经典量化算法、修改参数、执行历史回测，我会解读报告并解释每一条优化建议背后的原理。</p>
-            <div class="sugs">
+            <div class="sugs stagger">
               <button v-for="s in suggestions" :key="s.text" class="sug" @click="send(s.text)">
                 <div class="sug-title"><component :is="s.icon" :size="15" /> {{ s.title }}</div>
                 <div class="sug-text">{{ s.text }}</div>
@@ -330,7 +330,7 @@ onMounted(async () => {
 .new { margin-bottom: 10px; }
 .s-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .s-empty { font-size: 12.5px; padding: 12px; text-align: center; }
-.s-item { position: relative; padding: 8px 10px; border-radius: 9px; cursor: pointer; }
+.s-item { position: relative; padding: 8px 10px; border-radius: 9px; cursor: pointer; transition: background 0.15s, box-shadow 0.2s; animation: rise 0.35s var(--ease-out) both; }
 .s-item:hover { background: var(--surface-3); }
 .s-item.active { background: var(--surface); box-shadow: var(--shadow-sm); }
 .s-title { font-size: 13px; color: var(--text-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-right: 40px; }
@@ -352,26 +352,42 @@ onMounted(async () => {
 .loading { display: flex; justify-content: center; padding: 40px; }
 
 .welcome { padding: 56px 0 20px; text-align: center; }
-.hero-icon { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 18px; background: var(--primary-soft); margin-bottom: 14px; }
-.welcome h1 { font-size: 24px; font-weight: 650; margin: 0 0 8px; }
+.welcome > * { animation: rise 0.55s var(--ease-out) both; }
+.welcome > h1 { animation-delay: 0.06s; }
+.welcome > p { animation-delay: 0.12s; }
+.hero-icon {
+  position: relative; display: inline-grid; place-items: center; width: 68px; height: 68px; border-radius: 20px; margin-bottom: 16px;
+  background: linear-gradient(145deg, var(--surface), var(--primary-soft)); border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(42, 120, 214, 0.18);
+}
+.hero-icon img { animation: float 4s ease-in-out infinite; }
+.hero-icon .ring { position: absolute; inset: 0; border-radius: inherit; animation: pulse-ring 2.4s ease-out infinite; }
+.welcome h1 {
+  font-size: 26px; font-weight: 700; margin: 0 0 8px; letter-spacing: 0.3px;
+  background: var(--brand-text); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
 .welcome p { color: var(--text-2); margin: 0 auto 28px; max-width: 560px; }
 .sugs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; text-align: left; }
 .sug { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px; cursor: pointer; font-family: inherit; color: inherit; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; text-align: left; }
-.sug:hover { border-color: var(--primary); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.sug:hover { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); box-shadow: var(--shadow-md); transform: translateY(-3px); }
+.sug-title svg { transition: transform 0.3s var(--ease-spring); }
+.sug:hover .sug-title svg { transform: scale(1.2) rotate(-8deg); }
 .sug-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13.5px; color: var(--primary-ink); margin-bottom: 4px; }
 .sug-text { font-size: 12.5px; color: var(--text-2); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 .composer-wrap { flex-shrink: 0; padding: 10px 24px 14px; }
 .composer { max-width: 860px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 16px; padding: 8px 8px 8px 14px; box-shadow: var(--shadow-md); transition: border-color 0.15s; }
-.composer:focus-within { border-color: var(--primary); }
+.composer { transition: border-color 0.2s, box-shadow 0.3s var(--ease-out); }
+.composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft), var(--shadow-md); }
 .composer :deep(.n-input) { background: transparent; }
 .composer :deep(textarea) { font-size: 14px; line-height: 1.6; }
 .tip { max-width: 860px; margin: 6px auto 0; font-size: 11.5px; color: var(--text-3); text-align: center; }
 
-.panel { width: min(46%, 720px); min-width: 420px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg); display: flex; flex-direction: column; }
+.panel { animation: panel-in 0.4s var(--ease-out) both; width: min(46%, 720px); min-width: 420px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--bg); display: flex; flex-direction: column; }
 .panel-head { height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--border); background: var(--surface); font-weight: 600; }
 .open-full { margin-left: auto; font-size: 12.5px; font-weight: 400; }
 .panel-body { flex: 1; overflow-y: auto; padding: 16px 18px 28px; }
+@keyframes panel-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
 @media (max-width: 1280px) { .with-panel .sessions { display: none; } }
 @media (max-width: 1000px) { .panel { position: fixed; inset: 0 0 0 64px; width: auto; min-width: 0; z-index: 20; } .sugs { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {

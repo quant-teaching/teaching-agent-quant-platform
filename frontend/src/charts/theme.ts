@@ -46,7 +46,9 @@ export function baseOption(t: ChartTokens) {
   return {
     backgroundColor: 'transparent',
     textStyle: { fontFamily: 'inherit', color: t.text2 },
-    animationDuration: 400,
+    animationDuration: 900,
+    animationEasing: 'cubicOut' as const,
+    animationDurationUpdate: 450,
     tooltip: {
       backgroundColor: t.tooltipBg,
       borderColor: t.tooltipBorder,

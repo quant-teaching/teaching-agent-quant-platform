@@ -50,12 +50,14 @@ const items = [
 function active(it: (typeof items)[number]) {
   return route.name === it.name || (it.also ?? []).includes(route.name as string)
 }
+// 选中项背后的高亮块随路由滑动
+const activeIndex = computed(() => items.findIndex(active))
 </script>
 
 <template>
   <aside class="sidebar">
     <RouterLink to="/chat" class="brand">
-      <img src="/logo.svg" alt="" width="30" height="30" />
+      <img src="/logo.svg" alt="" width="30" height="30" class="logo" />
       <div>
         <div class="brand-name">量化策略教学平台</div>
         <div class="brand-sub">智能体驱动 · 教学实验</div>
@@ -63,6 +65,7 @@ function active(it: (typeof items)[number]) {
     </RouterLink>
 
     <nav class="nav">
+      <span class="indicator" :class="{ hidden: activeIndex < 0 }" :style="{ transform: `translateY(${Math.max(activeIndex, 0) * 40}px)` }" />
       <RouterLink v-for="it in items" :key="it.to" :to="it.to" class="nav-item" :class="{ active: active(it) }">
         <component :is="it.icon" :size="18" :stroke-width="1.8" />
         <span>{{ it.label }}</span>
@@ -125,16 +128,35 @@ function active(it: (typeof items)[number]) {
   border-right: 1px solid var(--border);
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px 18px; color: var(--text-1); }
-.brand-name { font-size: 14.5px; font-weight: 650; letter-spacing: 0.3px; }
-.brand-sub { font-size: 11.5px; color: var(--text-3); }
-.nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  height: 38px; padding: 0 12px; border-radius: 9px;
-  color: var(--text-2); font-size: 14px; transition: background 0.15s, color 0.15s;
+.brand-name {
+  font-size: 14.5px; font-weight: 650; letter-spacing: 0.3px;
+  background: var(--brand-text); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
+.logo { border-radius: 8px; transition: transform 0.5s var(--ease-spring); }
+.brand:hover .logo { transform: rotate(-8deg) scale(1.08); }
+.brand-sub { font-size: 11.5px; color: var(--text-3); }
+.nav { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.indicator {
+  position: absolute; left: 0; right: 0; top: 0; height: 38px; border-radius: 9px;
+  background: var(--primary-soft); pointer-events: none;
+  transition: transform 0.38s var(--ease-out), opacity 0.2s;
+}
+.indicator::before {
+  content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0;
+  background: var(--brand-grad);
+}
+.indicator.hidden { opacity: 0; }
+.nav-item {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  height: 38px; padding: 0 12px; border-radius: 9px;
+  color: var(--text-2); font-size: 14px; transition: background 0.15s, color 0.2s;
+}
+.nav-item svg { transition: transform 0.25s var(--ease-spring); }
 .nav-item:hover { background: var(--surface-3); color: var(--text-1); }
-.nav-item.active { background: var(--primary-soft); color: var(--primary-ink); font-weight: 600; }
+.nav-item:hover svg { transform: scale(1.12); }
+.nav .nav-item:hover { background: color-mix(in srgb, var(--surface-3) 60%, transparent); }
+.nav-item.active { color: var(--primary-ink); font-weight: 600; }
+.bottom .nav-item.active { background: var(--primary-soft); }
 .spacer { flex: 1; }
 .notice {
   font-size: 11.5px; line-height: 1.6; color: var(--text-3);
@@ -151,7 +173,7 @@ function active(it: (typeof items)[number]) {
   width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center;
   font-size: 14px; font-weight: 650; color: var(--primary-ink); background: var(--primary-soft);
 }
-.avatar.admin { color: #fff; background: var(--primary); }
+.avatar.admin { color: #fff; background: var(--brand-grad); }
 .who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
 .who b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who em { font-style: normal; font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -164,6 +186,8 @@ function active(it: (typeof items)[number]) {
   display: grid; place-items: center; transition: background 0.15s;
 }
 .icon-btn:hover { background: var(--surface-3); color: var(--text-1); }
+.icon-btn svg { transition: transform 0.5s var(--ease-spring); }
+.icon-btn:hover svg { transform: rotate(40deg); }
 @media (max-width: 900px) {
   .sidebar { width: 64px; padding: 14px 10px; }
   .brand div, .nav-item span, .notice, .who, .chev { display: none; }

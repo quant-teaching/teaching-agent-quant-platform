@@ -64,18 +64,7 @@ copy .env.example .env   # 可选，同上
 
 ## 系统架构
 
-```mermaid
-flowchart LR
-  UI["前端<br/>Vue 3 · Naive UI · ECharts"] -->|REST / SSE| API["FastAPI"]
-  API --> AG["智能体中枢<br/>11 个工具 · 核验 · 免责 · 主备模型"]
-  API --> SVC["业务服务"]
-  AG --> SVC
-  AG --> KB["教学知识库<br/>jieba + BM25"]
-  SVC --> ST["算法库<br/>22 个策略"]
-  SVC --> EN["回测引擎<br/>撮合 · 成本 · 指标"]
-  SVC --> PF["组合模块"]
-  ST & EN & PF --> DATA["行情快照<br/>股票 · 指数 · 行业 · 期货"]
-```
+![系统架构](docs/diagrams/overview.png)
 
 详细设计见 **[系统设计文档](docs/系统设计文档.md)**。
 
