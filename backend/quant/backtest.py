@@ -14,7 +14,7 @@ import pandas as pd
 from .data.catalog import INDEXES, is_futures
 from .data.loader import DataError, data_range, load_bars, load_benchmarks, resolve_universe, symbol_name
 from .engine.config import BacktestConfig
-from .engine.engine import EngineOutput, run_engine
+from .engine.engine import CORP_ACTIONS, NON_TRADES, EngineOutput, run_engine
 from .engine.ledger import Trade
 from .engine.metrics import (
     drawdown,
@@ -133,7 +133,8 @@ def _assemble(kind, title, strategy, params, symbols, cfg, eng: EngineOutput, ba
     total_cost = sum(f.fee + f.slippage for f in eng.fills)
     metrics["total_cost"] = float(total_cost)
     metrics["cost_ratio"] = float(total_cost / start_equity)
-    metrics["fill_count"] = len(eng.fills)
+    metrics["fill_count"] = sum(1 for f in eng.fills if f.action not in CORP_ACTIONS)
+    metrics["dividends"] = float(eng.dividends)
     metrics["final_equity"] = float(daily["equity"].iloc[-1])
     metrics["initial_capital"] = float(start_equity)
 
@@ -283,7 +284,7 @@ def _charts(symbols, bars, out: StrategyOutput, eng: EngineOutput, days) -> list
     if not len(eng.fills):
         traded = symbols[:MAX_CHART_SYMBOLS]
     else:
-        counts = pd.Series([f.symbol for f in eng.fills if f.action != "移仓"]).value_counts()
+        counts = pd.Series([f.symbol for f in eng.fills if f.action not in NON_TRADES]).value_counts()
         traded = [s for s in counts.index if s in symbols][:MAX_CHART_SYMBOLS] or symbols[:1]
     charts = []
     for s in traded:
@@ -292,12 +293,12 @@ def _charts(symbols, bars, out: StrategyOutput, eng: EngineOutput, days) -> list
         }).loc[days[0]:days[-1]].dropna()
         lines = {name: df[s].loc[ohlc.index].round(4) for name, df in out.indicators.items()
                  if s in df.columns}
-        # 买卖点画在图上时用指标价格体系（期货为复权价），与 K 线一致
+        # 买卖点画在图上时用指标价格体系（股票为前复权价、期货为后复权价），与 K 线一致
         adj = (bars.close[s] / bars.mark_close[s]).reindex(ohlc.index)
         marks = [
             {"date": str(f.date.date()), "action": f.action, "qty": f.qty,
              "price": float(f.price * adj.get(f.date, 1.0)), "raw_price": f.price}
-            for f in eng.fills if f.symbol == s and f.action != "移仓"
+            for f in eng.fills if f.symbol == s and f.action not in NON_TRADES
         ]
         charts.append({"symbol": s, "name": symbol_name(s), "ohlc": ohlc.round(4), "lines": lines,
                        "marks": marks})

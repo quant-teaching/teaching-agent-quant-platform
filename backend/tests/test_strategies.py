@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from quant.backtest import run_backtest
+from quant.engine.engine import CORP_ACTIONS
 from quant.data.loader import DataError, load_bars, resolve_universe
 from quant.portfolio.portfolio import Component, PortfolioSpec, run_portfolio
 from quant.strategies.base import ParamError, load_all
@@ -30,7 +31,7 @@ def test_strategy_runs_with_sane_output(sid):
     if stock and not r.positions.empty:
         assert (r.positions[r.positions["symbol"].isin(stock)]["qty"] >= 0).all()
     # 交易记录完整：每笔成交都有正的价格和非负的费用
-    assert all(f.price > 0 and f.fee >= 0 and f.slippage >= 0 for f in r.fills)
+    assert all(f.price > 0 and f.fee >= 0 and f.slippage >= 0 for f in r.fills if f.action not in CORP_ACTIONS)
 
 
 @pytest.mark.parametrize("sid", ALL)

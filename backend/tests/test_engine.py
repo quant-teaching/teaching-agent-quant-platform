@@ -141,3 +141,55 @@ def test_round_trip_win_rate():
     m = summarize(out.daily["equity"] / CAP, out.trades)
     assert m["trade_count"] == 2
     assert m["win_rate"] == pytest.approx(0.5)
+
+
+def test_dividend_and_bonus_shares_keep_equity_continuous():
+    """10 送 5 派 2.5 元（每股 0.25）：除权日现金到账、股数变为 1.5 倍，权益不因除权而跳变。"""
+    bars = make_bars(
+        {"600519": [10, 10, 10, 6.5, 6.5]},
+        opens={"600519": [10, 10, 10, 6.5, 6.5]},
+        pre_close={"600519": [np.nan, 10, 10, 6.5, 6.5]},  # 除权日的昨收为除权参考价 (10 − 0.25) / 1.5
+        extra={"cash_div": {"600519": [0, 0, 0, 0.25, 0]}, "split": {"600519": [1, 1, 1, 1.5, 1]}},
+    )
+    w = pd.DataFrame({"600519": [1.0] * 5}, index=bars.dates)
+    out = run_engine(w, bars, cfg(bars, stock_slippage=0, stock_commission=0, stock_min_commission=0))
+    buy, div, bonus = out.fills
+    assert (buy.action, buy.qty) == ("买入", 100_000)
+    assert (div.action, div.amount) == ("分红", pytest.approx(25_000))
+    assert (bonus.action, bonus.qty) == ("送转", 50_000)
+    assert out.dividends == pytest.approx(25_000)
+    assert out.positions["qty"].iloc[-1] == 150_000
+    assert out.daily["equity"].to_numpy() == pytest.approx([CAP] * 5)
+    # 未平仓交易：现金分红计入已实现盈亏，送转后成本价摊薄，合计盈亏为 0
+    (trade,) = out.trades
+    assert trade.pnl == pytest.approx(0, abs=1e-6) and trade.max_qty == 150_000
+
+
+def test_stock_fills_use_real_prices_and_detect_bonus_shares():
+    """股票按不复权价成交；比亚迪 2025-07-29 除权（10 送 20 派 39.74 元）识别为送转 3 倍 + 现金分红。"""
+    from quant.data.loader import load_bars
+
+    b = load_bars(["601398", "002594"])
+    d = pd.Timestamp("2016-01-04")
+    raw_factor = b.extra["close_raw"].loc[d, "601398"] / b.close.loc[d, "601398"]
+    assert b.mark_close.loc[d, "601398"] == b.extra["close_raw"].loc[d, "601398"]
+    assert b.exec_open.loc[d, "601398"] == pytest.approx(b.open.loc[d, "601398"] * raw_factor, abs=0.006)
+    assert b.exec_open.loc[d, "601398"] > b.open.loc[d, "601398"] * 1.5  # 与前复权价差距明显
+
+    ex = pd.Timestamp("2025-07-29")
+    assert b.extra["split"].loc[ex, "002594"] == 3.0
+    assert b.extra["cash_div"].loc[ex, "002594"] == pytest.approx(3.974)
+    prev = b.mark_close.loc[:ex, "002594"].iloc[-2]
+    assert b.mark_pre_close.loc[ex, "002594"] == pytest.approx((prev - 3.974) / 3)
+    # 工商银行十年间只有现金分红、没有送转
+    assert (b.extra["split"]["601398"] == 1.0).all()
+
+
+def test_profit_factor_when_all_trades_win():
+    from quant.engine.ledger import Trade
+    from quant.engine.metrics import trade_stats
+
+    t = pd.Timestamp("2024-01-02")
+    win = Trade("600519", "多", t, t, 10, 11, 100, pnl=100, cost=0, holding_days=1)
+    assert trade_stats([win, win])["profit_factor"] == math.inf
+    assert trade_stats([])["profit_factor"] is None

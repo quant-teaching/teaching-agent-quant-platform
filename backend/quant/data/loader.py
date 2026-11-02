@@ -3,8 +3,9 @@
 两套价格：
 - open / high / low / close：用于计算技术指标。股票为前复权价，期货为比例后复权价，
   这样分红除权、期货换月都不会在指标里制造假突破。
-- exec_open / mark_close / mark_pre_close：用于成交和盯市。股票直接用前复权价
-  （含分红再投资效果）；期货用当日实际交易合约的原始价格，盈亏 = 手数 × 乘数 × 原始价差。
+- exec_open / mark_close / mark_pre_close：用于成交和盯市，都是真实价格。股票按当日不复权价成交、
+  按 100 股一手取整，分红以现金入账、送转股增加持股数量（见 corporate_actions）；
+  期货用当日实际交易合约的原始价格，盈亏 = 手数 × 乘数 × 原始价差。
 """
 
 from __future__ import annotations
@@ -124,8 +125,12 @@ class Bars:
         )
 
     def returns(self) -> pd.DataFrame:
-        """日收益率（用执行价体系计算，期货换月当天不含价差）。"""
+        """日收益率：股票用复权价（含分红送转），期货用实际合约价（换月当天不含价差）。"""
         r = self.mark_close / self.mark_pre_close - 1
+        adj_pre = self.extra.get("adj_pre_close")
+        if adj_pre is not None:
+            cols = [s for s in self.symbols if self.types[s] == "stock"]
+            r[cols] = self.close[cols] / adj_pre[cols] - 1
         return r.where(self.tradable)
 
 
@@ -160,12 +165,7 @@ def _load_bars(symbols_t: tuple[str, ...]) -> Bars:
         df = read_dataset("stock_daily")
         df = df[df["symbol"].isin(by_type["stock"])].copy()
         df = df.sort_values(["symbol", "date"])
-        df["exec_open"] = df["open"]
-        df["mark_close"] = df["close"]
-        df["mark_pre_close"] = df.groupby("symbol")["close"].shift()
-        df["roll"] = False
-        df["contract"] = df["symbol"]
-        frames.append(df)
+        frames.append(corporate_actions(df))
     if "industry" in by_type:
         df = read_dataset("industry_daily")
         df = df[df["symbol"].isin(by_type["industry"])].drop(columns="name").copy()
@@ -201,7 +201,7 @@ def _load_bars(symbols_t: tuple[str, ...]) -> Bars:
     mark_close = w("mark_close").ffill()
     mark_pre = w("mark_pre_close")
     extra = {}
-    for col in ("turnover", "amount", "close_raw", "hold"):
+    for col in ("turnover", "amount", "close_raw", "hold", "adj_pre_close", "cash_div", "split"):
         if col in data.columns:
             extra[col] = w(col)
     return Bars(
@@ -220,6 +220,51 @@ def _load_bars(symbols_t: tuple[str, ...]) -> Bars:
         contract=w("contract"),
         extra=extra,
     )
+
+
+SPLIT_MIN = 0.03  # 复权比例变化超过 3% 且现金分红解释不了时，认定为送转股
+
+
+def corporate_actions(df: pd.DataFrame) -> pd.DataFrame:
+    """股票真实成交价与分红送转。df 为单类股票日线（按 symbol、date 排序），返回补充列后的副本。
+
+    行情里只有前复权 OHLC 和不复权收盘价 close_raw，同一天两者之比就是当日复权系数，
+    由此还原不复权开盘价。相邻两个交易日（p → t，中间可能停牌）之间：
+        现金分红 D = 除权日落在 (p, t] 内的每股派息之和；
+        送转比例 m = (raw_p × adj_t / adj_p − D) / raw_t ，即复权收益扣掉现金分红后，由股数变多解释的部分；
+        m 偏离 1 不足 3% 时视为价格取整误差（m = 1），否则按 0.1 取整（10 送 3 → 1.3）。
+    除权参考价 = (raw_p − D) / m ，用于判断 t 日开盘是否涨跌停。
+    """
+    df = df.copy()
+    factor = df["close_raw"] / df["close"]
+    df["exec_open"] = (df["open"] * factor).round(2)
+    df["mark_close"] = df["close_raw"]
+    g = df.groupby("symbol", sort=False)
+    raw_p = g["close_raw"].shift()
+    adj_p = g["close"].shift()
+
+    # 每个除权日落到它当天或之后的第一个交易日（停牌期间除权的，复牌当天入账）
+    div = load_dividends()
+    div = div[div["symbol"].isin(df["symbol"].unique())]
+    cash = pd.Series(0.0, index=df.index)
+    dates = pd.to_datetime(df["date"])
+    for sym, events in div.groupby("symbol"):
+        rows = df.index[df["symbol"] == sym]
+        d = dates[rows].to_numpy()
+        pos = d.searchsorted(pd.to_datetime(events["ex_date"]).to_numpy())
+        ok = (pos > 0) & (pos < len(d))  # 第一个交易日之前的除权与持仓无关
+        hits = pd.Series(events["cash_per_share"].to_numpy()[ok]).groupby(pos[ok]).sum()
+        cash[rows[hits.index]] += hits.to_numpy()
+    m = (raw_p * df["close"] / adj_p - cash) / df["close_raw"]
+    split = m.where((m - 1).abs() >= SPLIT_MIN, 1.0).round(1).fillna(1.0)
+    split = split.where(split >= 1.0, 1.0)  # 缩股在 A 股极少见，数据噪声导致的 m<1 一律忽略
+    df["cash_div"] = cash
+    df["split"] = split
+    df["mark_pre_close"] = (raw_p - cash) / split
+    df["adj_pre_close"] = adj_p
+    df["roll"] = False
+    df["contract"] = df["symbol"]
+    return df
 
 
 def load_benchmarks(codes: list[str], start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:

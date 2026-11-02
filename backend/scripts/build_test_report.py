@@ -24,7 +24,7 @@ import pandas as pd  # noqa: E402
 
 from api.services import ORDER  # noqa: E402
 from quant.backtest import run_backtest  # noqa: E402
-from quant.data.loader import load_bars  # noqa: E402
+from quant.data.loader import load_bars, load_dividends  # noqa: E402
 from quant.engine.config import BacktestConfig  # noqa: E402
 from quant.engine.engine import run_engine  # noqa: E402
 from quant.paths import BACKEND_DIR, ROOT_DIR  # noqa: E402
@@ -106,6 +106,9 @@ TEST_NAMES = {
     "test_saved_key_never_sent_to_new_address": "已保存的 API Key 不会被发送到修改后的新地址（防止 Key 外泄）",
     "test_admin_password_locks_model_settings": "未开启登录时，设置管理员密码后修改模型设置需要先解锁",
     "test_update_params_ignores_reason_written_into_changes": "模型把修改理由写进参数字典时自动忽略，只修改真正的参数",
+    "test_dividend_and_bonus_shares_keep_equity_continuous": "除权日现金分红到账、送转股增加持股，权益不因除权跳变，盈亏核算正确",
+    "test_stock_fills_use_real_prices_and_detect_bonus_shares": "股票按不复权真实价格成交；从复权价与真实价还原出送转比例和除权参考价",
+    "test_profit_factor_when_all_trades_win": "全部盈利时利润因子为无穷大，没有平仓交易时为空",
     "test_login_required_and_registration": "开启登录后未登录不能访问接口；注册校验邀请码、用户名与密码强度；Cookie 为 HttpOnly",
     "test_registration_closed_without_invite_code": "未设置邀请码时关闭注册",
     "test_data_isolated_between_users": "对话与回测记录按用户隔离，不能查看或删除别人的数据",
@@ -201,13 +204,20 @@ def section_cross_check(out: list[str]) -> None:
     o = run_engine(w, b, cfg)
     f = o.fills[0]
     d = b.dates[(b.dates >= "2022-01-04") & (b.dates <= "2025-12-31")]
-    expect = cfg.initial_capital - f.qty * f.price - f.fee + f.qty * b.mark_close.loc[d[-1], "600519"]
+    # 现金分红直接从分红表独立计算：持有期内（首次成交之后）每个除权日每股派息 × 持股数
+    div = load_dividends()
+    div = div[(div["symbol"] == "600519") & (pd.to_datetime(div["ex_date"]) > f.date)
+              & (pd.to_datetime(div["ex_date"]) <= d[-1])]
+    cash_div = float(div["cash_per_share"].sum()) * f.qty
+    expect = cfg.initial_capital - f.qty * f.price - f.fee + f.qty * b.mark_close.loc[d[-1], "600519"] + cash_div
     got = o.daily["equity"].iloc[-1]
     out += ["## 2. 引擎正确性交叉验证", "",
             "用真实行情做一次独立核对：贵州茅台从 2022-01-04 起满仓买入持有到 2025-12-31，"
-            "引擎计算的期末权益应等于「初始资金 − 买入金额 − 手续费 + 持股数 × 期末收盘价」。", "",
+            "引擎计算的期末权益应等于「初始资金 − 买入金额 − 手续费 + 持股数 × 期末收盘价（不复权）+ 持有期现金分红」，"
+            "其中现金分红直接按分红表逐次累加，不经过引擎。", "",
             "| 项目 | 数值 |", "|---|---:|",
-            f"| 首笔成交 | {f.date.date()}，{int(f.qty)} 股 × {f.price:.2f} 元（开盘价 × (1 + 0.05% 滑点)） |",
+            f"| 首笔成交 | {f.date.date()}，{int(f.qty)} 股 × {f.price:.2f} 元（真实开盘价 × (1 + 0.05% 滑点)） |",
+            f"| 持有期现金分红 | {len(div)} 次，每股合计 {div['cash_per_share'].sum():.3f} 元，共 {cash_div:,.2f} 元 |",
             f"| 引擎期末权益 | {got:,.2f} 元 |",
             f"| 手工计算 | {expect:,.2f} 元 |",
             f"| 差额 | {got - expect:.6f} 元 {'✅' if abs(got - expect) < 0.01 else '❌'} |", ""]

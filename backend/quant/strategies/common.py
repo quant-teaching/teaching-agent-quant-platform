@@ -80,15 +80,25 @@ def rebalance_mask(index: pd.DatetimeIndex, freq: str) -> pd.Series:
 def top_k_weights(score: pd.DataFrame, k: int, mask: pd.Series, total: float = 1.0,
                   ascending: bool = False) -> pd.DataFrame:
     """在调仓日按分数选出前 k 名等权持有（total 为总仓位），非调仓日沿用上次结果。"""
-    w = pd.DataFrame(np.nan, index=score.index, columns=score.columns)
-    for t in score.index[mask.reindex(score.index).fillna(False).to_numpy(bool)]:
-        row = score.loc[t].dropna()
-        if row.empty:
+    vals = score.to_numpy(float)
+    out = np.full(vals.shape, np.nan)
+    for i in np.nonzero(mask.reindex(score.index).fillna(False).to_numpy(bool))[0]:
+        row = vals[i]
+        ok = np.nonzero(~np.isnan(row))[0]
+        if not len(ok):
             continue
-        chosen = row.sort_values(ascending=ascending).index[:k]
-        w.loc[t] = 0.0
-        w.loc[t, chosen] = total / len(chosen)
-    return w.ffill().fillna(0.0)
+        chosen = ok[_order(row[ok], ascending)[:k]]
+        out[i] = 0.0
+        out[i, chosen] = total / len(chosen)
+    return pd.DataFrame(out, index=score.index, columns=score.columns).ffill().fillna(0.0)
+
+
+def _order(v: np.ndarray, ascending: bool) -> np.ndarray:
+    """与 pandas Series.sort_values 相同的排序（含并列时的先后），保证选股结果不因实现方式改变。"""
+    if ascending:
+        return v.argsort(kind="quicksort")
+    idx = np.arange(len(v))[::-1]
+    return idx[v[::-1].argsort(kind="quicksort")][::-1]
 
 
 def weighted_on_mask(raw: pd.DataFrame, mask: pd.Series) -> pd.DataFrame:

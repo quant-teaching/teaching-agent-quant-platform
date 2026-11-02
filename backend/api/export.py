@@ -27,7 +27,8 @@ METRICS = [
     ("avg_win", "平均盈利（元）"), ("avg_loss", "平均亏损（元）"), ("avg_holding_days", "平均持仓天数"),
     ("long_count", "多头交易次数"), ("short_count", "空头交易次数"), ("avg_gross_exposure", "平均仓位"),
     ("annual_turnover", "年化换手（倍）"), ("total_cost", "交易成本合计（元）"), ("cost_ratio", "交易成本 / 初始资金"),
-    ("fill_count", "成交笔数"), ("initial_capital", "初始资金（元）"), ("final_equity", "期末权益（元）"),
+    ("fill_count", "成交笔数"), ("dividends", "累计现金分红（元）"), ("initial_capital", "初始资金（元）"),
+    ("final_equity", "期末权益（元）"),
 ]
 BENCH_METRICS = [
     ("excess_annual_return", "超额年化收益"), ("beta", "β"), ("alpha", "α（年化）"),

@@ -14,6 +14,7 @@ def make_bars(
     opens: dict[str, list[float]] | None = None,
     contracts: dict[str, list[str]] | None = None,
     pre_close: dict[str, list[float]] | None = None,
+    extra: dict[str, dict[str, list[float]]] | None = None,
 ) -> Bars:
     """prices 为收盘价；开盘价默认等于前一日收盘价（首日等于当日收盘）。"""
     n = len(next(iter(prices.values())))
@@ -34,4 +35,5 @@ def make_bars(
         volume=close * 0 + 1e6,
         exec_open=op, mark_close=close, mark_pre_close=pre,
         tradable=close.notna(), roll=roll, contract=contract,
+        extra={k: pd.DataFrame(v, index=idx, dtype=float) for k, v in (extra or {}).items()},
     )

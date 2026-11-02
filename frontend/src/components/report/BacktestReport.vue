@@ -104,6 +104,7 @@ function onPick(date: string) {
         <span><CalendarRange :size="14" /> {{ d.config.start }} ~ {{ d.config.end }}</span>
         <span>标的：{{ universeText }}</span>
         <span>初始资金 {{ money(d.metrics.initial_capital) }} → 期末 {{ money(d.metrics.final_equity) }}</span>
+        <span v-if="d.metrics.dividends">累计现金分红 {{ money(d.metrics.dividends) }}</span>
       </div>
       <div v-if="paramChips.length" class="chips">
         <span v-for="c in paramChips" :key="c.key" class="chip" :class="{ changed: c.changed }" :title="c.changed ? '已修改（非默认值）' : '默认值'">

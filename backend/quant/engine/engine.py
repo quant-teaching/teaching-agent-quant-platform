@@ -1,6 +1,7 @@
 """回测引擎：逐日撮合。
 
 时间线（每个交易日 t）：
+0. 分红送转：t 日是除权日时，t-1 日收盘的股票持仓按每股派息收到现金，按送转比例增加股数；
 1. 期货换月：t-1 日收盘时把旧合约持仓移到新合约，计移仓手续费和滑点；
 2. 开盘撮合：读取策略在 t-1 日收盘后给出的目标权重，按 t 日开盘价加减滑点成交，先卖后买；
 3. 收盘盯市：股票按收盘价计市值，期货按"手数 × 乘数 × 价差"把当日盈亏结算进现金。
@@ -26,6 +27,8 @@ from .config import BacktestConfig, stamp_duty_rate
 from .ledger import Ledger, Trade
 
 EPS = 1e-9
+CORP_ACTIONS = ("分红", "送转")  # 公司行为产生的记录，不是交易，不计入成交笔数、换手和买卖点
+NON_TRADES = ("移仓", *CORP_ACTIONS)
 
 
 @dataclass
@@ -51,6 +54,7 @@ class EngineOutput:
     trades: list[Trade]
     warnings: list[str] = field(default_factory=list)
     blocked: int = 0  # 因涨跌停、停牌、资金不足未能成交的次数
+    dividends: float = 0.0  # 累计收到的现金分红（元）
 
 
 def _lot(symbol: str, kind: str) -> float:
@@ -119,6 +123,10 @@ def run_engine(
     tradable = bars.tradable[symbols].to_numpy()[sl]
     roll = bars.roll[symbols].to_numpy()[sl]
     contract = bars.contract[symbols].to_numpy()[sl]
+    zeros = pd.DataFrame(0.0, index=full_index, columns=symbols)
+    cash_div = bars.extra.get("cash_div", zeros).reindex(columns=symbols).fillna(0.0).to_numpy()[sl]
+    split = bars.extra.get("split", zeros + 1.0).reindex(columns=symbols).fillna(1.0).to_numpy()[sl]
+    has_ca = (~is_fut)[None, :] & ((cash_div > 0) | (split != 1.0))
     prev_mclose_all = bars.mark_close[symbols].to_numpy()
     first_prev_close = prev_mclose_all[prev_i] if prev_i >= 0 else np.full(len(symbols), np.nan)
 
@@ -130,15 +138,34 @@ def run_engine(
     equity = cfg.initial_capital
     ledgers = [Ledger(s, multiplier=m) for s, m in zip(symbols, mult)]
     fills: list[Fill] = []
-    pos_rows: list[tuple] = []
+    pos_days: list[int] = []  # 每天收盘的持仓快照：第几个交易日、持有哪些标的、数量
+    pos_idx: list[np.ndarray] = []
+    pos_qty: list[np.ndarray] = []
     daily_rows: list[dict] = []
     blocked = 0
+    dividends = 0.0
     late_listing = set()
 
     for di, t in enumerate(days):
         tdate = t.date()
         prev_equity = equity
         traded_value = 0.0
+
+        # 0. 分红送转（第一天的持仓为空，不会触发）
+        for j in np.nonzero(has_ca[di] & (qty > 0))[0]:
+            if cash_div[di, j] > 0:
+                amount = qty[j] * cash_div[di, j]
+                cash += amount
+                dividends += amount
+                ledgers[j].dividend(amount)
+                fills.append(Fill(t, symbols[j], names[j], "分红", qty[j], cash_div[di, j], amount, 0.0, 0.0,
+                                  note=f"每股派息 {cash_div[di, j]:.4g} 元"))
+            if split[di, j] != 1.0:
+                added = round(qty[j] * (split[di, j] - 1))
+                qty[j] += added
+                ledgers[j].split(split[di, j])
+                fills.append(Fill(t, symbols[j], names[j], "送转", added, 0.0, 0.0, 0.0, 0.0,
+                                  note=f"每 10 股送转 {round((split[di, j] - 1) * 10, 1):g} 股"))
 
         # 1. 期货换月
         for j in np.nonzero(is_fut & roll[di] & (qty != 0))[0]:
@@ -154,20 +181,18 @@ def run_engine(
             fills.append(Fill(t, symbols[j], names[j], "移仓", qty[j], new_p, q * mult[j] * new_p,
                               fee, slip, contract[di, j], f"{old_c} → {contract[di, j]}"))
 
-        # 2. 开盘撮合
+        # 2. 开盘撮合。先用数组筛出今天需要处理的标的（目标变了、首次建仓或强制再平衡），
+        #    大多数交易日目标不变，逐个标的的循环只在少数标的上进行
+        tr = tradable[di]
+        never = np.isnan(applied)
+        for j in np.nonzero(~tr & (desired[di] > EPS) & never & (qty == 0))[0]:
+            late_listing.add(symbols[j])
+        with np.errstate(invalid="ignore"):
+            todo = tr & (exec_open[di] > 0) & (force[di] | never | (np.abs(desired[di] - applied) >= EPS))
         orders = []
-        for j in range(n):
-            if not tradable[di, j]:
-                if desired[di, j] > EPS and np.isnan(applied[j]) and qty[j] == 0:
-                    late_listing.add(symbols[j])
-                continue
+        for j in np.nonzero(todo)[0]:
             target_w = desired[di, j]
-            if not force[di] and abs(target_w - (0.0 if np.isnan(applied[j]) else applied[j])) < EPS \
-                    and not np.isnan(applied[j]):
-                continue
             price = exec_open[di, j]
-            if not price > 0:
-                continue
             if is_fut[j]:
                 target_q = math.trunc(target_w * prev_equity / (price * mult[j]))
             else:
@@ -265,28 +290,25 @@ def run_engine(
             traded_value += abs(dq) * fill
             applied[j] = target_w
 
-        # 3. 收盘盯市
-        stock_value = 0.0
-        gross = net = margin = 0.0
-        for j in np.nonzero(qty != 0)[0]:
-            px = mclose[di, j]
-            if is_fut[j]:
-                if tradable[di, j]:
-                    base = mark[j] if not np.isnan(mark[j]) else mpre[di, j]
-                    cash += qty[j] * mult[j] * (px - base)
-                    mark[j] = px
-                notional = qty[j] * mult[j] * px
-                gross += abs(notional)
-                net += notional
-                margin += abs(notional) * margin_rate[j]
-                value = notional
-            else:
-                value = qty[j] * px
-                stock_value += value
-                gross += value
-                net += value
+        # 3. 收盘盯市（向量化）：期货把当日价差盈亏结算进现金，股票按收盘价计市值
+        held = qty != 0
+        px = mclose[di]
+        settle = held & is_fut & tr
+        if settle.any():
+            base = np.where(np.isnan(mark), mpre[di], mark)
+            cash += float(np.sum((qty * mult * (px - base))[settle]))
+            mark[settle] = px[settle]
+        value = np.where(held, qty * mult * px, 0.0)  # 股票 mult 为 1：市值；期货：名义价值
+        stock_value = float(value[held & ~is_fut].sum())
+        gross = float(np.abs(value).sum())
+        net = float(value.sum())
+        margin = float((np.abs(value) * margin_rate).sum())
+        held_idx = np.nonzero(held)[0]
+        for j in held_idx:
             ledgers[j].bar()
-            pos_rows.append((t, symbols[j], qty[j], px, value, contract[di, j]))
+        pos_days.append(di)
+        pos_qty.append(qty[held_idx].copy())
+        pos_idx.append(held_idx)
         equity = cash + stock_value
         if equity <= 0:
             warnings.append(f"{tdate} 权益归零，回测提前终止（杠杆过高或连续亏损）")
@@ -297,7 +319,7 @@ def run_engine(
                                  prev_equity))
 
     daily = pd.DataFrame(daily_rows).set_index("date")
-    positions = pd.DataFrame(pos_rows, columns=["date", "symbol", "qty", "price", "value", "contract"])
+    positions = _positions(days, pos_days, pos_idx, pos_qty, symbols, mclose, mult, contract)
     if not positions.empty:
         positions["weight"] = positions["value"] / positions["date"].map(daily["equity"])
     trades = [t for lg in ledgers for t in lg.trades]
@@ -312,7 +334,23 @@ def run_engine(
         warnings.append(
             "以下标的在回测开始时尚未上市或停牌，有数据后才开始交易：" + "、".join(sorted(late_listing))
         )
-    return EngineOutput(daily, positions, fills, trades, warnings, blocked)
+    return EngineOutput(daily, positions, fills, trades, warnings, blocked, dividends)
+
+
+def _positions(days, pos_days, pos_idx, pos_qty, symbols, mclose, mult, contract) -> pd.DataFrame:
+    """把每日持仓快照拼成长表：date, symbol, qty, price, value, contract。"""
+    cols = ["date", "symbol", "qty", "price", "value", "contract"]
+    counts = [len(i) for i in pos_idx]
+    if not sum(counts):
+        return pd.DataFrame(columns=cols)
+    d = np.repeat(np.asarray(pos_days), counts)
+    j = np.concatenate(pos_idx)
+    q = np.concatenate(pos_qty)
+    price = mclose[d, j]
+    return pd.DataFrame({
+        "date": days[d], "symbol": np.asarray(symbols, dtype=object)[j], "qty": q, "price": price,
+        "value": q * mult[j] * price, "contract": contract[d, j],
+    })
 
 
 def _daily(t, equity, cash, stock_value, gross, net, margin, traded, prev_equity) -> dict:

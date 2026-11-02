@@ -101,7 +101,8 @@ def trade_stats(trades: list[Trade]) -> dict:
         # 没有已平仓交易时胜率和盈亏比没有意义，返回 None（界面显示为"—"）
         "win_rate": len(wins) / n if n else None,
         "profit_loss_ratio": avg_win / abs(avg_loss) if avg_loss < 0 else (math.inf if wins else None),
-        "profit_factor": sum(wins) / abs(sum(losses)) if losses and sum(losses) < 0 else 0.0,
+        # 全部盈利时利润因子为无穷大（界面显示 ∞），没有平仓交易时为 None
+        "profit_factor": sum(wins) / abs(sum(losses)) if sum(losses) < 0 else (math.inf if wins else None),
         "avg_win": avg_win,
         "avg_loss": avg_loss,
         "avg_holding_days": float(np.mean([t.holding_days for t in closed])) if closed else 0.0,

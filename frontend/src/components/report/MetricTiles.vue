@@ -21,7 +21,7 @@ const tiles = computed(() => {
     { icon: Scale, tone: 'violet', label: '卡玛比率', value: num(m.calmar), cls: '', sub: b ? `沪深300 ${num(b.calmar)}` : '', tip: '年化收益率 / |最大回撤|' },
     { icon: Activity, tone: 'amber', label: '年化波动率', value: pct(m.volatility, 1), cls: '', sub: b ? `沪深300 ${pct(b.volatility, 1)}` : '', tip: '日收益率标准差 × √252' },
     { icon: Target, tone: 'teal', label: '胜率', value: pct(m.win_rate, 1), cls: '', sub: `${m.trade_count} 笔已平仓`, tip: '盈利交易笔数 / 已平仓交易笔数' },
-    { icon: Percent, tone: 'teal', label: '盈亏比', value: plr === null ? (m.trade_count ? '∞' : '—') : num(plr), cls: '', sub: `利润因子 ${num(m.profit_factor)}`, tip: '平均盈利 / |平均亏损|' },
+    { icon: Percent, tone: 'teal', label: '盈亏比', value: plr === null ? (m.trade_count ? '∞' : '—') : num(plr), cls: '', sub: `利润因子 ${m.profit_factor === null ? (m.trade_count ? '∞' : '—') : num(m.profit_factor)}`, tip: '平均盈利 / |平均亏损|' },
     { icon: Repeat, tone: 'amber', label: '交易次数', value: String(m.trade_count), cls: '', sub: `成交 ${m.fill_count} 笔`, tip: '完整交易（开仓到平仓）的笔数；成交笔数含加减仓与移仓' },
     { icon: Receipt, tone: 'rose', label: '交易成本', value: pct(m.cost_ratio, 2), cls: '', sub: `年化换手 ${num(m.annual_turnover, 1)} 倍`, tip: '累计手续费、印花税与滑点 / 初始资金' },
   ]

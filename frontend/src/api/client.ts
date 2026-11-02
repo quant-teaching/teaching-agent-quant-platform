@@ -136,7 +136,7 @@ export interface Metrics {
   profit_loss_ratio: number | null
   trade_count: number
   sortino: number
-  profit_factor: number
+  profit_factor: number | null
   avg_holding_days: number
   max_drawdown_days: number
   max_drawdown_peak: string | null
@@ -147,6 +147,7 @@ export interface Metrics {
   cost_ratio: number
   fill_count: number
   final_equity: number
+  dividends?: number
   initial_capital: number
   [k: string]: any
 }

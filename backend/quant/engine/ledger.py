@@ -97,6 +97,22 @@ class Ledger:
         ep.exit_value *= scale
         self.avg = new_price
 
+    def dividend(self, amount: float) -> None:
+        """现金分红计入这笔交易的已实现盈亏。"""
+        if self._ep is not None:
+            self._ep.realized += amount
+
+    def split(self, ratio: float) -> None:
+        """送转股：股数乘以 ratio，成本价除以 ratio，总成本不变；均价都换算成送转后的口径。"""
+        if self.qty == 0 or ratio == 1:
+            return
+        self.qty = round(self.qty * ratio)
+        self.avg /= ratio
+        ep = self._ep
+        ep.entry_qty *= ratio
+        ep.exit_qty *= ratio
+        ep.max_qty = max(ep.max_qty * ratio, abs(self.qty))
+
     def bar(self) -> None:
         if self._ep is not None:
             self._ep.bars += 1
