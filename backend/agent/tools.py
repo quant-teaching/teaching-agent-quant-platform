@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from dataclasses import dataclass, field
 from datetime import date
@@ -79,7 +80,8 @@ TOOLS: list[dict] = [
         "description": "修改策略参数（保存在当前会话，后续回测自动使用），返回修改前后的对比。参数键名必须使用 get_strategy 返回的 key",
         "parameters": {"type": "object", "properties": {
             "strategy": STRATEGY_ARG,
-            "changes": {"type": "object", "description": "要修改的参数，如 {\"atr_period\": 22, \"position_limit\": 0.15}"}},
+            "changes": {"type": "object", "description": "只放要修改的参数键值，如 {\"atr_period\": 22, \"position_limit\": 0.15}"},
+            "reason": {"type": "string", "description": "修改理由（可选，写在这里，不要放进 changes）"}},
             "required": ["strategy", "changes"]}}},
     {"type": "function", "function": {
         "name": "reset_params", "description": "把策略参数恢复为默认值",
@@ -153,6 +155,15 @@ TOOL_LABELS = {
 
 # ---------------------------------------------------------------- 工具实现
 
+# 模型有时会把修改理由等说明文字塞进参数字典，这些键不是策略参数，直接丢掉而不是报错
+META_KEYS = {"reason", "reasons", "note", "notes", "comment", "explanation", "why", "description",
+             "说明", "理由", "原因", "备注"}
+
+
+def _drop_meta(d: dict[str, Any] | None) -> dict[str, Any]:
+    return {k: v for k, v in (d or {}).items() if k not in META_KEYS}
+
+
 class Toolbox:
     def __init__(self, state: SessionState, session_id: str):
         self.state = state
@@ -162,7 +173,9 @@ class Toolbox:
         fn = getattr(self, f"t_{name}", None)
         if fn is None:
             raise ToolError(f"没有名为 {name} 的工具")
-        return fn(**args)
+        # 忽略工具定义之外的多余参数（如模型自行附加的 reason），避免整次调用失败
+        accepted = inspect.signature(fn).parameters
+        return fn(**{k: v for k, v in args.items() if k in accepted})
 
     # -- 策略
 
@@ -212,13 +225,15 @@ class Toolbox:
         return result, card
 
     def _validate(self, entry, params: dict[str, Any]) -> dict[str, Any]:
+        params = _drop_meta(params)
         try:
             return entry.cls(params).params.model_dump()
         except ParamError as e:
             raise ToolError(f"参数不合法：{e}") from e
 
-    def t_update_params(self, strategy: str, changes: dict[str, Any]):
+    def t_update_params(self, strategy: str, changes: dict[str, Any], reason: str | None = None):
         entry = self._entry(strategy)
+        changes = _drop_meta(changes)
         if not changes:
             raise ToolError("没有提供要修改的参数")
         before = self._validate(entry, self._current_params(entry))

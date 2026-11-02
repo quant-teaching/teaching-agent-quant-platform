@@ -105,6 +105,7 @@ TEST_NAMES = {
     "test_second_instance_on_same_data_dir_is_refused": "同一数据目录拒绝启动第二个实例（防止 Windows 与 WSL 同时写库）",
     "test_saved_key_never_sent_to_new_address": "已保存的 API Key 不会被发送到修改后的新地址（防止 Key 外泄）",
     "test_admin_password_locks_model_settings": "未开启登录时，设置管理员密码后修改模型设置需要先解锁",
+    "test_update_params_ignores_reason_written_into_changes": "模型把修改理由写进参数字典时自动忽略，只修改真正的参数",
     "test_login_required_and_registration": "开启登录后未登录不能访问接口；注册校验邀请码、用户名与密码强度；Cookie 为 HttpOnly",
     "test_registration_closed_without_invite_code": "未设置邀请码时关闭注册",
     "test_data_isolated_between_users": "对话与回测记录按用户隔离，不能查看或删除别人的数据",

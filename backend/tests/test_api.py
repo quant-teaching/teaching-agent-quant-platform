@@ -408,3 +408,14 @@ def test_spa_route_blocks_path_traversal(client):
         assert "pydantic" not in r.text and "BaseSettings" not in r.text, p
     assert client.get("/api/not-exist").status_code == 404
     assert "<div id=\"app\">" in client.get("/chat").text  # 前端路由仍然返回页面
+
+
+def test_update_params_ignores_reason_written_into_changes():
+    """模型把修改理由塞进参数字典或额外传 reason 时，只改真正的参数，不报"参数不合法"。"""
+    from agent.tools import SessionState, Toolbox
+
+    tb = Toolbox(SessionState(), "sess_meta")
+    result, card = tb.call("update_params", {
+        "strategy": "turtle_futures", "changes": {"atr_period": 22, "reason": "降低噪声"}, "reason": "同上", "extra": 1})
+    assert [c["key"] for c in card["changes"]] == ["atr_period"]
+    assert "reason" not in result["current_params"] and "reason" not in tb.state.params["turtle_futures"]
