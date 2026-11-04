@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import PageHero from '@/components/common/PageHero.vue'
-import { ArrowDown, ArrowUp, CircleCheck, CircleX, KeyRound, Link2, Loader2, LockKeyhole, Pencil, Plus, RefreshCw, Search, Server, Trash2, Users, X, Zap, Cpu } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, CircleCheck, CircleX, KeyRound, Link2, Loader2, LockKeyhole, Pencil, Plus, RefreshCw, Search, Server, Trash2, Users, X, Zap, Cpu, Ticket, Copy, Dices } from 'lucide-vue-next'
 import {
   NButton, NCheckbox, NDataTable, NEmpty, NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSlider, NSwitch, NTag, NTooltip, useMessage,
   type DataTableColumns,
@@ -26,7 +26,7 @@ async function load() {
   routingDirty.value = false
   lock.mode = lk.mode
   lock.locked = lk.locked && !(lk.mode === 'password' && storedAdminPw())
-  if (auth.enabled && auth.user?.role === 'admin') loadUsers()
+  if (auth.enabled && auth.user?.role === 'admin') { loadUsers(); loadInvite() }
 }
 
 // ---------------------------------------------------------------- 只读 / 解锁
@@ -54,6 +54,43 @@ async function unlock() {
     toast.error(e.message)
   } finally {
     lock.checking = false
+  }
+}
+
+// ---------------------------------------------------------------- 注册邀请码（管理员）
+
+const invite = reactive({ code: '', enabled: false, source: 'env', saved: { code: '', enabled: false }, saving: false })
+const inviteDirty = computed(() => invite.code !== invite.saved.code || invite.enabled !== invite.saved.enabled)
+const inviteValid = computed(() => /^[A-Za-z0-9_-]{4,40}$/.test(invite.code))
+async function loadInvite() {
+  const r = await api.get<{ code: string; enabled: boolean; source: string }>('/api/auth/invite')
+  Object.assign(invite, { code: r.code, enabled: r.enabled, source: r.source, saved: { code: r.code, enabled: r.enabled } })
+}
+function genInvite() {
+  const abc = 'abcdefghjkmnpqrstuvwxyz23456789'
+  const rnd = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => abc[b % abc.length]).join('')
+  invite.code = `class-${rnd}`
+}
+async function saveInvite() {
+  invite.saving = true
+  try {
+    const r = await api.put<{ code: string; enabled: boolean; source: string }>('/api/auth/invite', { code: invite.code.trim(), enabled: invite.enabled })
+    Object.assign(invite, { code: r.code, enabled: r.enabled, source: r.source, saved: { code: r.code, enabled: r.enabled } })
+    auth.registration = r.enabled
+    toast.success(r.enabled ? '邀请码已更新，立即生效' : '已关闭注册')
+  } catch (e: any) {
+    toast.error(e.message)
+  } finally {
+    invite.saving = false
+  }
+}
+async function copyInvite() {
+  const text = `量化策略教学平台注册\n网址：${location.origin}/login\n邀请码：${invite.saved.code}`
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success('已复制注册网址和邀请码，可以直接发给学生')
+  } catch {
+    toast.info(text)
   }
 }
 
@@ -410,13 +447,37 @@ onMounted(load)
     </div>
 
     <!-- 用户管理 -->
+    <section v-if="auth.enabled && auth.user?.role === 'admin'" class="card card-pad invite">
+      <div class="sec-head">
+        <div>
+          <h3 class="section-title"><Ticket :size="16" class="ti" /> 注册邀请码</h3>
+          <p class="section-sub">学生在登录页选择「注册」并填写邀请码即可创建账号。修改后立即生效，旧邀请码随即失效；已注册的账号不受影响。</p>
+        </div>
+        <NTag :bordered="false" round :type="invite.saved.enabled ? 'success' : 'default'">{{ invite.saved.enabled ? '开放注册中' : '未开放注册' }}</NTag>
+      </div>
+      <div class="inv-body">
+        <div class="inv-ticket" :class="{ off: !invite.enabled }">
+          <span class="inv-label">邀请码</span>
+          <NInput v-model:value="invite.code" class="inv-input" placeholder="4~40 位字母、数字、- 或 _" :maxlength="40" :status="invite.code && !inviteValid ? 'error' : undefined" />
+          <NTooltip><template #trigger><NButton quaternary circle @click="genInvite"><template #icon><Dices :size="17" /></template></NButton></template>随机生成一个新邀请码</NTooltip>
+        </div>
+        <div class="inv-row">
+          <label class="inv-switch"><NSwitch v-model:value="invite.enabled" /> 开放注册</label>
+          <span class="inv-hint">{{ invite.source === 'env' ? '当前使用服务器 .env 中的 INVITE_CODE，在这里保存后以页面设置为准' : '由页面设置，优先于服务器 .env' }}</span>
+          <div class="inv-acts">
+            <NButton v-if="invite.saved.enabled" secondary @click="copyInvite"><template #icon><Copy :size="15" /></template>复制给学生</NButton>
+            <NButton type="primary" :loading="invite.saving" :disabled="!inviteDirty || (invite.enabled && !inviteValid)" @click="saveInvite">保存</NButton>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section v-if="auth.enabled && auth.user?.role === 'admin'" class="card card-pad users">
       <div class="sec-head">
         <div>
           <h3 class="section-title"><Users :size="16" class="ti" /> 用户管理</h3>
           <p class="section-sub">
-            {{ auth.registration ? '学生用你提供的邀请码自行注册（邀请码在服务器 .env 的 INVITE_CODE 中设置）' : '当前未开放注册：在服务器 .env 中设置 INVITE_CODE 后，学生可以用邀请码注册' }}；
-            停用账号会让对方立即退出登录
+            学生用上方的邀请码自行注册；停用账号会让对方立即退出登录，删除账号不会删除其回测记录
           </p>
         </div>
         <NTag :bordered="false" round>{{ users.length }} 个账号</NTag>
@@ -491,6 +552,27 @@ onMounted(load)
 .ro { pointer-events: none; }
 .ro :deep(.n-base-selection), .ro :deep(.n-slider), .ro :deep(.n-input-number), .ro :deep(.n-switch), .ro :deep(.ops), .ro :deep(.mtest), .ro :deep(.n-button) { opacity: 0.5; }
 .users { margin-top: 18px; }
+.invite { margin-top: 18px; }
+.inv-body { margin-top: 10px; display: flex; flex-direction: column; gap: 12px; }
+.inv-ticket {
+  position: relative; display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 18px; border-radius: 12px;
+  border: 1.5px dashed color-mix(in srgb, var(--t-amber) 55%, var(--border));
+  background: linear-gradient(120deg, var(--t-amber-soft), transparent 65%); transition: opacity 0.2s;
+}
+.inv-ticket::before, .inv-ticket::after {
+  content: ""; position: absolute; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: var(--surface);
+  border: 1.5px dashed color-mix(in srgb, var(--t-amber) 55%, var(--border));
+}
+.inv-ticket::before { left: -8px; clip-path: inset(0 0 0 50%); }
+.inv-ticket::after { right: -8px; clip-path: inset(0 50% 0 0); }
+.inv-ticket.off { opacity: 0.6; }
+.inv-label { font-size: 12.5px; font-weight: 650; color: var(--t-amber); white-space: nowrap; }
+.inv-input { flex: 1; }
+.inv-input :deep(input) { font-family: var(--mono); font-size: 15px; letter-spacing: 1px; }
+.inv-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.inv-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 550; }
+.inv-hint { flex: 1; min-width: 200px; font-size: 12px; color: var(--text-3); }
+.inv-acts { display: flex; gap: 8px; }
 .ti { vertical-align: -2px; margin-right: 2px; }
 :deep(.u-cell) { display: flex; align-items: center; gap: 10px; }
 :deep(.u-cell b) { display: block; font-weight: 600; font-size: 13px; }

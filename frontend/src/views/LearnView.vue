@@ -36,6 +36,7 @@ const doneCount = computed(() => CHAPTERS.filter((c) => done.value.has(c.id)).le
 const percent = computed(() => Math.round((doneCount.value / CHAPTERS.length) * 100))
 const resume = computed(() => CHAPTERS.find((c) => !done.value.has(c.id)) ?? CHAPTERS[0])
 const tocOpen = ref(false)
+const minRange = (() => { const m = CHAPTERS.map((c) => c.minutes); return `${Math.min(...m)}~${Math.max(...m)}` })()
 
 function finish() {
   if (!chapter.value) return
@@ -51,8 +52,9 @@ watch(() => route.params.id, async () => {
 </script>
 
 <template>
+  <Transition name="learn-swap" mode="out-in">
   <!-- 目录页 -->
-  <div v-if="!chapter" class="page learn">
+  <div v-if="!chapter" key="home" class="page learn">
     <PageHero title="新手教程" tone="amber" :icon="GraduationCap"
       desc="写给零基础同学的量化入门笔记：从「什么是量化」讲起，一步一步学会看懂回测、调参数、做组合，直到熟练使用整个平台。">
       <template #actions>
@@ -62,7 +64,7 @@ watch(() => route.params.id, async () => {
       </template>
       <div class="hero-stats">
         <div class="hero-stat"><span class="ic-tile tone-amber"><ListTree :size="16" /></span><div><div class="v">{{ CHAPTERS.length }} 章</div><div class="l">{{ CATEGORIES.length }} 个分类</div></div></div>
-        <div class="hero-stat"><span class="ic-tile tone-teal"><Clock :size="16" /></span><div><div class="v">约 {{ TOTAL_MINUTES }} 分钟</div><div class="l">每章 5~10 分钟</div></div></div>
+        <div class="hero-stat"><span class="ic-tile tone-teal"><Clock :size="16" /></span><div><div class="v">约 {{ TOTAL_MINUTES }} 分钟</div><div class="l">每章 {{ minRange }} 分钟</div></div></div>
         <div class="hero-stat progress-stat">
           <span class="ic-tile tone-violet"><Check :size="16" /></span>
           <div class="grow"><div class="v">{{ doneCount }} / {{ CHAPTERS.length }}</div>
@@ -96,7 +98,7 @@ watch(() => route.params.id, async () => {
   </div>
 
   <!-- 章节页 -->
-  <div v-else class="page learn reading">
+  <div v-else key="reading" class="page learn reading">
     <aside class="toc" :class="{ open: tocOpen }">
       <button class="toc-toggle" @click="tocOpen = !tocOpen">
         <ListTree :size="16" /> 目录 · 第 {{ chapter.index }} / {{ CHAPTERS.length }} 章
@@ -119,6 +121,7 @@ watch(() => route.params.id, async () => {
       </div>
     </aside>
 
+    <Transition name="page-turn" mode="out-in">
     <article :key="chapter.id" class="paper-wrap">
       <div class="notebook paper" :class="`tone-${chapter.category.tone}`">
         <header class="ch-head">
@@ -153,7 +156,9 @@ watch(() => route.params.id, async () => {
         </RouterLink>
       </nav>
     </article>
+    </Transition>
   </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -210,7 +215,17 @@ watch(() => route.params.id, async () => {
 .toc-item.done .dot { color: #fff; background: var(--tone); }
 .t { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
-.paper-wrap { min-width: 0; animation: rise 0.45s var(--ease-out) both; }
+.paper-wrap { min-width: 0; }
+.reading > .paper-wrap { animation: none; } /* 由 page-turn 过渡负责，不再叠加全局入场动画 */
+/* 章节之间：旧页向左淡出、新页从右侧滑入，像翻笔记本 */
+.page-turn-enter-active { transition: opacity 0.32s var(--ease-out), transform 0.32s var(--ease-out); }
+.page-turn-leave-active { transition: opacity 0.16s ease, transform 0.16s ease; }
+.page-turn-enter-from { opacity: 0; transform: translateX(18px); }
+.page-turn-leave-to { opacity: 0; transform: translateX(-10px); }
+.learn-swap-enter-active { transition: opacity 0.3s var(--ease-out), transform 0.3s var(--ease-out); }
+.learn-swap-leave-active { transition: opacity 0.14s ease; }
+.learn-swap-enter-from { opacity: 0; transform: translateY(8px); }
+.learn-swap-leave-to { opacity: 0; }
 .paper { padding-top: 34px; padding-bottom: 30px; }
 .ch-head { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 2px solid color-mix(in srgb, var(--tone) 35%, transparent); }
 .ch-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12.5px; color: var(--text-3); }

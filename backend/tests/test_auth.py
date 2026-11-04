@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from api import auth
-from api.db import ChatSession, engine
+from api.db import AppSetting, ChatSession, engine
 from api.main import app
 from api.settings import get_settings
 
@@ -21,6 +21,11 @@ def auth_on(monkeypatch):
     monkeypatch.setattr(st, "admin_password", "Teacher-pass-1")
     auth._fails.clear()
     yield
+    with Session(engine()) as s:  # 页面上改过的邀请码不能带到别的测试
+        row = s.get(AppSetting, auth.INVITE_KEY)
+        if row:
+            s.delete(row)
+            s.commit()
 
 
 def new_client():
@@ -132,3 +137,21 @@ def test_password_hash_is_salted_scrypt():
     h1, h2 = auth.hash_password("abc12345"), auth.hash_password("abc12345")
     assert h1 != h2 and h1.startswith("scrypt$") and "abc12345" not in h1
     assert auth.verify_password("abc12345", h1) and not auth.verify_password("abc12346", h1)
+
+
+def test_admin_changes_invite_code_on_page(auth_on):
+    """管理员在页面上修改邀请码后立即生效：旧码失效、新码可注册；关闭后不开放注册；学生无权查看。"""
+    with new_client() as adm, new_client() as stu:
+        adm.post("/api/auth/login", json={"username": "teacher", "password": "Teacher-pass-1"})
+        assert adm.get("/api/auth/invite").json() == {"code": "class-2026", "enabled": True, "source": "env"}
+        assert adm.put("/api/auth/invite", json={"code": "ab", "enabled": True}).status_code == 400
+        r = adm.put("/api/auth/invite", json={"code": "spring-2027", "enabled": True})
+        assert r.json() == {"code": "spring-2027", "enabled": True, "source": "db"}
+        assert register(new_client(), "旧码同学").json()["detail"] == "邀请码不正确"
+        assert register(stu, "新码同学", invite="spring-2027").status_code == 200
+        assert stu.get("/api/auth/invite").status_code == 403
+        assert stu.put("/api/auth/invite", json={"code": "hack-0000", "enabled": True}).status_code == 403
+
+        adm.put("/api/auth/invite", json={"code": "spring-2027", "enabled": False})
+        assert new_client().get("/api/auth/me").json()["registration"] is False
+        assert register(new_client(), "关闭后", invite="spring-2027").status_code == 403

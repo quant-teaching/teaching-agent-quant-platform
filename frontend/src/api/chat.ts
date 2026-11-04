@@ -1,6 +1,9 @@
 // 流式对话：POST /api/chat，读取 SSE 事件流
 import { handleUnauthorized } from './client'
 
+/** 指定对话使用的模型；null 表示自动（按模型设置里的主备顺序） */
+export interface ModelRef { provider_id: number; model: string }
+
 export interface ChatEvent {
   type: string
   [k: string]: any
@@ -11,11 +14,12 @@ export async function streamChat(
   sessionId: string | null,
   onEvent: (e: ChatEvent) => void,
   signal?: AbortSignal,
+  model: ModelRef | null = null,
 ): Promise<void> {
   const resp = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({ message, session_id: sessionId, model }),
     signal,
   })
   if (resp.status === 401) handleUnauthorized('/api/chat')

@@ -234,7 +234,7 @@ def scripted(turns):
     """按顺序返回预设的模型输出：每一轮是 (文本, [工具调用])。"""
     it = iter(turns)
 
-    async def fake_stream(messages, tools=None):
+    async def fake_stream(messages, tools=None, prefer=None):
         text, calls = next(it)
         yield {"type": "model", "provider": "假接口", "model": "fake", "fallback": False}
         for ch in text:
@@ -288,7 +288,7 @@ def test_agent_tool_loop_disclaimer_and_fact_check(client, monkeypatch):
 def test_agent_fact_check_passes_for_real_numbers(client, monkeypatch):
     captured = {}
 
-    async def fake(messages, tools=None):
+    async def fake(messages, tools=None, prefer=None):
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
         if not tool_msgs:
             yield {"type": "done", "completion": Completion(tool_calls=[ToolCall(
@@ -309,7 +309,7 @@ def test_agent_fact_check_passes_for_real_numbers(client, monkeypatch):
 def test_agent_tool_error_is_fed_back(client, monkeypatch):
     seen = {}
 
-    async def fake(messages, tools=None):
+    async def fake(messages, tools=None, prefer=None):
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
         if not tool_msgs:
             yield {"type": "done", "completion": Completion(tool_calls=[ToolCall(
@@ -335,7 +335,7 @@ def test_investment_advice_detection():
 def test_compliance_hint_injected(client, monkeypatch):
     got = {}
 
-    async def fake(messages, tools=None):
+    async def fake(messages, tools=None, prefer=None):
         got["sys"] = [m["content"] for m in messages if m["role"] == "system"]
         yield {"type": "done", "completion": Completion(content="本平台仅用于教学。")}
 
@@ -419,3 +419,33 @@ def test_update_params_ignores_reason_written_into_changes():
         "strategy": "turtle_futures", "changes": {"atr_period": 22, "reason": "降低噪声"}, "reason": "同上", "extra": 1})
     assert [c["key"] for c in card["changes"]] == ["atr_period"]
     assert "reason" not in result["current_params"] and "reason" not in tb.state.params["turtle_futures"]
+
+
+def test_chat_model_choice_puts_selected_model_first(client):
+    """对话页可选模型：列表不含地址和密钥；指定模型排在最前，失败再按主备顺序兜底；未配置的模型被拒绝。"""
+    from agent import llm
+
+    a = llm.upsert_provider({"name": "甲接口", "base_url": "https://a.example.com/v1", "api_key": "sk-aaaaaaaaaaaa",
+                             "models": ["m-main", "m-other"]})
+    b = llm.upsert_provider({"name": "乙接口", "base_url": "https://b.example.com/v1", "api_key": "sk-bbbbbbbbbbbb",
+                             "models": ["m-b"]})
+    old = llm.get_routing()
+    try:
+        llm.save_routing(llm.Routing(primary=llm.ModelRef(provider_id=a.id, model="m-main"),
+                                     fallbacks=[llm.ModelRef(provider_id=b.id, model="m-b")]))
+        data = client.get("/api/llm/choices").json()
+        assert data["auto"] == {"primary": "甲接口 / m-main", "fallbacks": 1}
+        assert "sk-" not in json.dumps(data) and "example.com" not in json.dumps(data)
+        groups = {g["provider"]: g["models"] for g in data["groups"]}
+        assert groups["甲接口"][:2] == ["m-main", "m-other"] and groups["乙接口"] == ["m-b"]
+
+        chain = llm._chain(llm.get_routing(), llm.ModelRef(provider_id=a.id, model="m-other"))
+        assert [(p.name, m) for p, m in chain] == [("甲接口", "m-other"), ("甲接口", "m-main"), ("乙接口", "m-b")]
+        chain = llm._chain(llm.get_routing(), llm.ModelRef(provider_id=b.id, model="m-b"))
+        assert [(p.name, m) for p, m in chain] == [("乙接口", "m-b"), ("甲接口", "m-main")]
+        with pytest.raises(llm.LLMError, match="所选模型不可用"):
+            llm._chain(llm.get_routing(), llm.ModelRef(provider_id=b.id, model="not-listed"))
+    finally:
+        llm.save_routing(old)
+        llm.delete_provider(a.id)
+        llm.delete_provider(b.id)

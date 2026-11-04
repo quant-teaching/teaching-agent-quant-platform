@@ -61,7 +61,7 @@ def main() -> None:
     for i, c in enumerate(strategies, 1):
         doc = c.doc()
         doc = re.sub(r"^# .+\n", "", doc, count=1)
-        doc = re.sub(r"^## ", "#### ", doc, flags=re.M)
+        doc = re.sub(r"^(#{2,3}) ", lambda m: "#" * (len(m.group(1)) + 2) + " ", doc, flags=re.M)
         params = ["| 参数键 | 中文名 | 默认值 | 取值范围 | 说明 |", "|---|---|---|---|---|"]
         for p in c.param_specs():
             lo = p.get("min", p.get("gt"))

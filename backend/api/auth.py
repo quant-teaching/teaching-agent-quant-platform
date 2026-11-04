@@ -18,13 +18,15 @@ from typing import Any
 from fastapi import HTTPException, Request, Response
 from sqlmodel import Session, select
 
-from .db import AuthSession, User, engine, now
+from .db import AuthSession, User, engine, get_setting, now, set_setting
 from .settings import get_settings
 
 COOKIE = "qt_session"
 SESSION_DAYS, REMEMBER_DAYS = 1, 30
 MAX_FAILS, LOCK_SECONDS = 5, 300
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_一-龥]{2,20}$")
+INVITE_KEY = "auth.invite"
+INVITE_RE = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
 
 current_user: ContextVar[User | None] = ContextVar("current_user", default=None)
 
@@ -163,8 +165,34 @@ def login(username: str, password: str) -> User:
     return u
 
 
+def invite_config() -> dict[str, Any]:
+    """注册邀请码：管理员在页面上设置过就以数据库为准，否则沿用环境变量 INVITE_CODE。"""
+    saved = get_setting(INVITE_KEY)
+    if saved is None:
+        code = get_settings().invite_code
+        return {"code": code, "enabled": bool(code), "source": "env"}
+    return {"code": saved.get("code", ""), "enabled": bool(saved.get("enabled")) and bool(saved.get("code")),
+            "source": "db"}
+
+
+def active_invite_code() -> str:
+    """当前有效的邀请码；为空表示不开放注册。"""
+    c = invite_config()
+    return c["code"] if c["enabled"] else ""
+
+
+def set_invite(code: str, enabled: bool) -> dict[str, Any]:
+    code = code.strip()
+    if enabled and not INVITE_RE.match(code):
+        raise HTTPException(400, "邀请码为 4~40 位字母、数字、下划线或短横线")
+    if code and not INVITE_RE.match(code):
+        raise HTTPException(400, "邀请码为 4~40 位字母、数字、下划线或短横线")
+    set_setting(INVITE_KEY, {"code": code, "enabled": enabled})
+    return invite_config()
+
+
 def register(username: str, password: str, invite_code: str, display_name: str = "") -> User:
-    code = get_settings().invite_code
+    code = active_invite_code()
     if not code:
         raise HTTPException(403, "当前未开放注册，请联系老师获取账号")
     if not hmac.compare_digest(invite_code.strip().encode(), code.encode()):

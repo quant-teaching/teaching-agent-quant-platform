@@ -109,6 +109,8 @@ TEST_NAMES = {
     "test_dividend_and_bonus_shares_keep_equity_continuous": "除权日现金分红到账、送转股增加持股，权益不因除权跳变，盈亏核算正确",
     "test_stock_fills_use_real_prices_and_detect_bonus_shares": "股票按不复权真实价格成交；从复权价与真实价还原出送转比例和除权参考价",
     "test_profit_factor_when_all_trades_win": "全部盈利时利润因子为无穷大，没有平仓交易时为空",
+    "test_chat_model_choice_puts_selected_model_first": "对话页可选模型：列表不含地址和密钥，指定模型排在最前、失败按主备兜底，未配置的模型被拒绝",
+    "test_admin_changes_invite_code_on_page": "管理员在页面修改邀请码立即生效：旧码失效、新码可注册、可关闭注册、学生无权查看",
     "test_login_required_and_registration": "开启登录后未登录不能访问接口；注册校验邀请码、用户名与密码强度；Cookie 为 HttpOnly",
     "test_registration_closed_without_invite_code": "未设置邀请码时关闭注册",
     "test_data_isolated_between_users": "对话与回测记录按用户隔离，不能查看或删除别人的数据",

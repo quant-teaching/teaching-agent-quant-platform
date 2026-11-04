@@ -110,7 +110,7 @@ const features = [
     </section>
 
     <section class="panel">
-      <button class="theme-btn" :aria-label="theme.isDark ? '切换到浅色' : '切换到深色'" @click="theme.toggle()">
+      <button class="theme-btn" :aria-label="theme.isDark ? '切换到浅色' : '切换到深色'" @click="theme.toggle($event)">
         <Sun v-if="theme.isDark" :size="17" />
         <Moon v-else :size="17" />
       </button>

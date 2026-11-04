@@ -3,9 +3,10 @@ import { BookOpen, ChartLine, Layers, MessageSquarePlus, PanelLeft, PanelRightCl
 import { NButton, NInput, NPopconfirm, NSpin, NTooltip, useMessage } from 'naive-ui'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { streamChat, type ChatEvent } from '@/api/chat'
-import { api, getBacktest, type BacktestPayload, type Routing, type Provider } from '@/api/client'
+import { streamChat, type ChatEvent, type ModelRef } from '@/api/chat'
+import { api, getBacktest, type BacktestPayload } from '@/api/client'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
+import ModelPicker from '@/components/chat/ModelPicker.vue'
 import { DISCLAIMER, type TextBlock, type ToolBlock, type UiMessage } from '@/components/chat/types'
 import BacktestReport from '@/components/report/BacktestReport.vue'
 import { useCatalog } from '@/stores/catalog'
@@ -24,7 +25,7 @@ const busy = ref(false)
 const loadingSession = ref(false)
 const showSessions = ref(typeof window === 'undefined' || window.innerWidth > 900)
 const scroller = ref<HTMLElement | null>(null)
-const modelLabel = ref('')
+const chatModel = ref<ModelRef | null>(null)
 let abort: AbortController | null = null
 
 // 右侧报告面板
@@ -43,15 +44,6 @@ const suggestions = [
 
 async function loadSessions() {
   sessions.value = await api.get('/api/chat/sessions')
-}
-
-async function loadModelLabel() {
-  try {
-    const [r, ps] = await Promise.all([api.get<Routing>('/api/llm/routing'), api.get<Provider[]>('/api/llm/providers')])
-    const p = ps.find((x) => x.id === r.primary?.provider_id)
-    modelLabel.value = r.primary ? `${r.primary.model}${r.fallbacks.length ? ` · 备用 ${r.fallbacks.length} 个` : ''}` : ''
-    if (!r.primary || !p) modelLabel.value = ''
-  } catch { modelLabel.value = '' }
 }
 
 function fromServer(m: any): UiMessage {
@@ -169,7 +161,7 @@ async function send(text?: string) {
   }
 
   try {
-    await streamChat(content, sessionId.value, onEvent, abort.signal)
+    await streamChat(content, sessionId.value, onEvent, abort.signal, chatModel.value)
   } catch (e: any) {
     if (e.name !== 'AbortError') msg.error = e.message || '连接中断'
     else msg.error = '已停止生成'
@@ -232,7 +224,6 @@ onMounted(async () => {
     if (pre) { input.value = pre; sessionStorage.removeItem('chat-prefill') }
   } catch { /* 不可读时忽略 */ }
   catalog.load().catch(() => {})
-  loadModelLabel()
   await loadSessions()
   if (sessionId.value) openSession(sessionId.value)
 })
@@ -274,8 +265,7 @@ onMounted(async () => {
       <header class="conv-head">
         <NTooltip><template #trigger><button class="ghost" @click="showSessions = !showSessions"><PanelLeft :size="17" /></button></template>{{ showSessions ? '收起会话列表' : '展开会话列表' }}</NTooltip>
         <div class="conv-title">{{ sessions.find((s) => s.id === sessionId)?.title ?? '新对话' }}</div>
-        <RouterLink v-if="modelLabel" to="/settings" class="model-badge" title="模型设置">{{ modelLabel }}</RouterLink>
-        <RouterLink v-else to="/settings" class="model-badge warn">未配置模型，去设置</RouterLink>
+        <ModelPicker v-model="chatModel" />
       </header>
 
       <div ref="scroller" class="scroll">
@@ -345,8 +335,6 @@ onMounted(async () => {
 .conv { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 .conv-head { height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .conv-title { font-weight: 600; font-size: 14.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
-.model-badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); white-space: nowrap; }
-.model-badge.warn { background: var(--warn-soft); color: var(--warn); }
 .ghost { border: none; background: none; color: var(--text-2); cursor: pointer; padding: 6px; border-radius: 7px; display: grid; }
 .ghost:hover { background: var(--surface-3); color: var(--text-1); }
 .scroll { flex: 1; overflow-y: auto; }
@@ -418,6 +406,5 @@ onMounted(async () => {
   .composer-wrap { padding: 8px 12px 10px; }
   .welcome { padding-top: 28px; }
   .welcome h1 { font-size: 20px; }
-  .model-badge { display: none; }
 }
 </style>

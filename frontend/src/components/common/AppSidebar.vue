@@ -98,7 +98,7 @@ const activeIndex = computed(() => items.findIndex(active))
       </RouterLink>
       <NTooltip placement="right">
         <template #trigger>
-          <button class="icon-btn" :aria-label="theme.isDark ? '切换到浅色' : '切换到深色'" @click="theme.toggle()">
+          <button class="icon-btn" :aria-label="theme.isDark ? '切换到浅色' : '切换到深色'" @click="theme.toggle($event)">
             <Sun v-if="theme.isDark" :size="17" />
             <Moon v-else :size="17" />
           </button>

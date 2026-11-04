@@ -21,7 +21,7 @@ from api.db import ChatMessage, ChatSession, engine, now
 from quant.data.catalog import FUTURES
 from quant.strategies.base import load_all
 
-from .llm import LLMError, stream_chat
+from .llm import LLMError, ModelRef, stream_chat
 from .tools import TOOL_LABELS, TOOLS, SessionState, Toolbox, ToolError, today
 
 MAX_ROUNDS = 8
@@ -211,7 +211,8 @@ def _tool_label(name: str, args: dict[str, Any]) -> str:
     return f"{base}：{target}" if target else base
 
 
-async def run_turn(session_id: str | None, user_text: str) -> AsyncIterator[dict[str, Any]]:
+async def run_turn(session_id: str | None, user_text: str,
+                   model: ModelRef | None = None) -> AsyncIterator[dict[str, Any]]:
     cs = get_or_create_session(session_id)
     state = SessionState.load(cs.state_json)
     toolbox = Toolbox(state, cs.id)
@@ -236,7 +237,7 @@ async def run_turn(session_id: str | None, user_text: str) -> AsyncIterator[dict
     try:
         for _ in range(MAX_ROUNDS):
             completion = None
-            async for ev in stream_chat(messages + turn_msgs, TOOLS):
+            async for ev in stream_chat(messages + turn_msgs, TOOLS, prefer=model):
                 if ev["type"] == "done":
                     completion = ev["completion"]
                     continue

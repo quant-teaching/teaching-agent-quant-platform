@@ -215,6 +215,11 @@ class UserPatch(BaseModel):
     disabled: bool
 
 
+class InviteIn(BaseModel):
+    code: str = Field("", max_length=40)
+    enabled: bool = True
+
+
 def require_role_admin() -> None:
     if not auth.is_admin():
         raise HTTPException(403, "只有管理员可以管理用户")
@@ -224,7 +229,8 @@ def require_role_admin() -> None:
 def auth_me(request: Request):
     st = get_settings()
     u = auth.user_from_request(request) if st.auth_enabled else None
-    return {"enabled": st.auth_enabled, "user": auth.public(u) if u else None, "registration": bool(st.invite_code)}
+    return {"enabled": st.auth_enabled, "user": auth.public(u) if u else None,
+            "registration": bool(auth.active_invite_code()) if st.auth_enabled else False}
 
 
 @app.post("/api/auth/login")
@@ -258,6 +264,16 @@ def auth_password(body: PasswordIn):
         raise HTTPException(400, "平台未开启登录")
     auth.change_password(u, body.old, body.new)
     return {"ok": True}
+
+
+@app.get("/api/auth/invite", dependencies=[Depends(require_role_admin)])
+def get_invite():
+    return auth.invite_config()
+
+
+@app.put("/api/auth/invite", dependencies=[Depends(require_role_admin)])
+def put_invite(body: InviteIn):
+    return auth.set_invite(body.code, body.enabled)
 
 
 @app.get("/api/auth/users", dependencies=[Depends(require_role_admin)])
@@ -382,6 +398,12 @@ async def test_model(body: TestIn):
     return await llm.test_model(llm.get_provider(body.provider_id), body.model)
 
 
+@app.get("/api/llm/choices")
+def llm_choices():
+    """对话页的模型选择：自动（主备顺序）或指定某个接口的某个模型。不含地址和密钥，所有登录用户可见。"""
+    return llm.choices()
+
+
 @app.get("/api/llm/routing")
 def routing():
     return llm.get_routing().model_dump()
@@ -401,12 +423,13 @@ def save_routing(body: llm.Routing):
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     session_id: str | None = None
+    model: llm.ModelRef | None = None  # 为空表示自动（按模型设置里的主备顺序）
 
 
 @app.post("/api/chat")
 async def chat(body: ChatIn):
     async def gen():
-        async for ev in run_turn(body.session_id, body.message.strip()):
+        async for ev in run_turn(body.session_id, body.message.strip(), body.model):
             yield {"data": json.dumps(clean(ev), ensure_ascii=False, default=str)}
     return EventSourceResponse(gen(), ping=15)
 

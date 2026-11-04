@@ -212,7 +212,10 @@ class Toolbox:
             item["current"] = cur.get(p["key"], p["default"])
             params.append(item)
         secs = knowledge.strategy_sections(entry.cls.id)
-        doc = {k: secs[k] for k in ("概述", "原理", "交易规则", "交易规则（日线版本）", "适用场景", "局限性") if k in secs}
+        # 教学文档里与"讲讲这个策略"最相关的小节（新旧两套标题都兼容）
+        wanted = ("一句话理解", "概述", "原理", "交易规则（平台实现）", "交易规则", "什么行情好用，什么行情吃亏",
+                  "适用场景", "局限性", "常见误区")
+        doc = {k: secs[k] for k in wanted if k in secs}
         self.state.current = entry.id
         modified = {k: v for k, v in cur.items() if defaults.get(k) != v}
         result = {"id": entry.id, "name": entry.name, "category": info["category_label"], "style": info["style"],

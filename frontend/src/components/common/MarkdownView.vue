@@ -13,7 +13,9 @@ import { useRouter } from 'vue-router'
 
 hljs.registerLanguage('python', python)
 
-const CALLOUTS: Record<string, string> = { TIP: '小贴士', NOTE: '说明', WARNING: '注意', KEY: '要点', TRY: '动手试试' }
+const CALLOUTS: Record<string, string> = { TIP: '小贴士', NOTE: '说明', WARNING: '注意', KEY: '要点', TRY: '动手试试', IMPORTANT: '要点', CAUTION: '注意' }
+// GitHub 风格的 IMPORTANT / CAUTION 映射到同类配色，策略文档在 GitHub 上也能正常显示
+const CALLOUT_CLASS: Record<string, string> = { IMPORTANT: 'key', CAUTION: 'warning' }
 
 const md = new MarkdownIt({
   html: false,
@@ -32,14 +34,14 @@ md.core.ruler.push('teaching_blocks', (state) => {
     // 提示框：> [!TIP] 标题（标题可省略）
     if (t.type === 'blockquote_open' && tokens[i + 2]?.type === 'inline') {
       const inline = tokens[i + 2]
-      const m = inline.content.match(/^\[!(TIP|NOTE|WARNING|KEY|TRY)\][ \t]*([^\n]*)\n?/)
+      const m = inline.content.match(/^\[!(TIP|NOTE|WARNING|KEY|TRY|IMPORTANT|CAUTION)\][ \t]*([^\n]*)\n?/)
       if (m) {
-        t.attrJoin('class', `callout callout-${m[1].toLowerCase()}`)
+        t.attrJoin('class', `callout callout-${CALLOUT_CLASS[m[1]] ?? m[1].toLowerCase()}`)
         t.attrSet('data-label', m[2].trim() || CALLOUTS[m[1]])
         inline.content = inline.content.slice(m[0].length)
         const first = inline.children?.[0]
         if (first?.type === 'text') {
-          first.content = first.content.replace(/^\[!(TIP|NOTE|WARNING|KEY|TRY)\][ \t]*[^\n]*/, '')
+          first.content = first.content.replace(/^\[!(TIP|NOTE|WARNING|KEY|TRY|IMPORTANT|CAUTION)\][ \t]*[^\n]*/, '')
           if (inline.children![1]?.type === 'softbreak') inline.children!.splice(1, 1)
           if (!first.content) inline.children!.shift()
         }
@@ -82,6 +84,13 @@ md.renderer.rules.link_open = (tokens, idx, opts, env, self) => {
     tokens[idx].attrSet('rel', 'noopener')
   }
   return defaultRender(tokens, idx, opts, env, self)
+}
+// 图片：懒加载，替代文字同时作为图注显示在图片下方
+md.renderer.rules.image = (tokens, idx) => {
+  const t = tokens[idx]
+  const src = md.utils.escapeHtml(t.attrGet('src') || '')
+  const alt = md.utils.escapeHtml(t.content || '')
+  return `<span class="md-fig"><img src="${src}" alt="${alt}" loading="lazy" />${alt ? `<span class="md-cap">${alt}</span>` : ''}</span>`
 }
 // 表格外包一层，窄屏横向滚动
 md.renderer.rules.table_open = () => '<div class="md-table"><table>'

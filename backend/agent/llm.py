@@ -231,8 +231,38 @@ def candidates(routing: Routing | None = None) -> list[tuple[LLMProvider, str]]:
     return out
 
 
-async def stream_chat(messages: list[dict], tools: list[dict] | None = None) -> AsyncIterator[dict]:
-    """依次尝试主模型和备用模型。产出事件：
+def choices() -> dict[str, Any]:
+    """对话页可选的模型：自动（主备顺序），以及每个启用接口下的模型（主备里用到的排在前面）。"""
+    r = get_routing()
+    refs = ([r.primary] if r.primary else []) + r.fallbacks
+    chain = candidates(r)
+    groups = []
+    for p in list_providers():
+        if not p.enabled:
+            continue
+        models = list(dict.fromkeys([x.model for x in refs if x.provider_id == p.id] + p.models))
+        if models:
+            groups.append({"provider_id": p.id, "provider": p.name, "models": models})
+    return {"auto": {"primary": f"{chain[0][0].name} / {chain[0][1]}" if chain else None,
+                     "fallbacks": max(len(chain) - 1, 0)},
+            "groups": groups}
+
+
+def _chain(routing: Routing, prefer: ModelRef | None) -> list[tuple[LLMProvider, str]]:
+    """调用顺序：指定了模型就先用它，失败后再按主备顺序兜底；指定的必须是管理员配置过的模型。"""
+    chain = candidates(routing)
+    if prefer is None:
+        return chain
+    allowed = {(g["provider_id"], m) for g in choices()["groups"] for m in g["models"]}
+    if (prefer.provider_id, prefer.model) not in allowed:
+        raise LLMError("所选模型不可用（可能已被管理员停用或删除），请在对话页重新选择，或选「自动」")
+    prov = get_provider(prefer.provider_id)
+    return [(prov, prefer.model)] + [(p, m) for p, m in chain if (p.id, m) != (prov.id, prefer.model)]
+
+
+async def stream_chat(messages: list[dict], tools: list[dict] | None = None,
+                      prefer: ModelRef | None = None) -> AsyncIterator[dict]:
+    """依次尝试指定模型（若有）、主模型和备用模型。产出事件：
     {"type": "model", ...} 开始使用某个模型；{"type": "delta", "text"} 文本片段；
     {"type": "switch", "from", "to", "reason"} 切换备用模型（前端应丢弃本轮已显示的片段）；
     {"type": "done", "completion": Completion}。
@@ -240,7 +270,7 @@ async def stream_chat(messages: list[dict], tools: list[dict] | None = None) -> 
     import asyncio
 
     routing = get_routing()
-    chain = candidates(routing)
+    chain = _chain(routing, prefer)
     if not chain:
         raise LLMError("还没有配置可用的模型，请先到「模型设置」添加接口并选择主模型")
     errors = []
