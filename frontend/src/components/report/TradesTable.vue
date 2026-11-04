@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { NDataTable, NRadioButton, NRadioGroup, type DataTableColumns } from 'naive-ui'
-import { computed, h, ref } from 'vue'
+import { computed, h, reactive, ref, watch } from 'vue'
 import type { Fill, Trade } from '@/api/client'
 import { int, num, pct, signClass } from '@/utils/format'
 
@@ -32,7 +32,18 @@ const fillCols: DataTableColumns<Fill> = [
   { title: '备注', key: 'note', minWidth: 120, ellipsis: { tooltip: true } },
 ]
 
-const pagination = { pageSize: 15, showSizePicker: true, pageSizes: [15, 30, 50, 100] }
+// 分页需要受控：页码和每页条数变化时写回，否则切换"每页条数"不会生效
+function makePager() {
+  const p = reactive({
+    page: 1, pageSize: 15, showSizePicker: true, pageSizes: [15, 30, 50, 100],
+    onUpdatePage: (v: number) => { p.page = v },
+    onUpdatePageSize: (v: number) => { p.pageSize = v; p.page = 1 },
+  })
+  return p
+}
+const tradePager = makePager()
+const fillPager = makePager()
+watch(() => [props.trades, props.fills], () => { tradePager.page = 1; fillPager.page = 1 })
 const tradeRows = computed(() => [...props.trades].reverse())
 </script>
 
@@ -48,8 +59,8 @@ const tradeRows = computed(() => [...props.trades].reverse())
         <template v-else>信号在前一日收盘生成、当日开盘成交{{ fillsTruncated ? '；页面仅显示前 5000 笔，完整明细请用「导出数据」下载' : '' }}</template>
       </span>
     </div>
-    <NDataTable v-if="view === 'trades'" :columns="tradeCols" :data="tradeRows" :pagination="pagination" size="small" :scroll-x="980" :bordered="false" striped />
-    <NDataTable v-else :columns="fillCols" :data="fills" :pagination="pagination" size="small" :scroll-x="1000" :bordered="false" striped />
+    <NDataTable v-if="view === 'trades'" :columns="tradeCols" :data="tradeRows" :pagination="tradePager" size="small" :scroll-x="980" :bordered="false" striped />
+    <NDataTable v-else :columns="fillCols" :data="fills" :pagination="fillPager" size="small" :scroll-x="1000" :bordered="false" striped />
   </div>
 </template>
 

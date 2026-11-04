@@ -100,12 +100,19 @@ onMounted(() => catalog.load().catch(() => {}))
       </div>
     </aside>
     <section class="result">
-      <NSpin :show="running" description="正在回测各子策略并合成组合…">
+      <NSpin :show="running && !!result" description="正在回测各子策略并合成组合…">
         <BacktestReport v-if="result" :key="result.id" :data="result" />
-        <div v-else class="empty card">
+        <div v-else class="empty card" :class="{ busy: running }">
           <EmptyChart />
-          <h3>把多个策略组合在一起</h3>
-          <p class="muted">相关性低的策略组合后，组合的波动和回撤往往小于单个策略——这就是分散化。回测后可以在「组合分析」中查看相关系数、分散化比率和风险贡献。</p>
+          <template v-if="running">
+            <h3 class="run-title">正在组合回测<span class="run-dots"><i /><i /><i /></span></h3>
+            <p class="muted">依次回测每个子策略，再按权重和再平衡规则合成组合，通常需要几秒到十几秒</p>
+            <div class="run-bar"><span /></div>
+          </template>
+          <template v-else>
+            <h3>把多个策略组合在一起</h3>
+            <p class="muted">相关性低的策略组合后，组合的波动和回撤往往小于单个策略——这就是分散化。回测后可以在「组合分析」中查看相关系数、分散化比率和风险贡献。</p>
+          </template>
         </div>
       </NSpin>
     </section>

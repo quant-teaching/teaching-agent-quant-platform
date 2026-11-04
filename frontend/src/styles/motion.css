@@ -105,6 +105,18 @@ body {
 .lab .side-head { background: linear-gradient(90deg, var(--primary-soft), transparent 70%); }
 .lab .empty { border-style: dashed; background: linear-gradient(160deg, var(--surface), var(--surface-2)); }
 .lab .empty > svg { margin-bottom: 8px; }
+/* 实验室空状态的加载形态：标题后三个跳动的点 + 不确定进度条 */
+.lab .empty.busy { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.lab .empty.busy > svg { animation: float 2.4s ease-in-out infinite; }
+.run-title { display: inline-flex; align-items: baseline; gap: 2px; color: var(--primary-ink); }
+.run-dots { display: inline-flex; gap: 3px; margin-left: 4px; }
+.run-dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; animation: run-dot 1.2s ease-in-out infinite; }
+.run-dots i:nth-child(2) { animation-delay: 0.15s; }
+.run-dots i:nth-child(3) { animation-delay: 0.3s; }
+.run-bar { position: relative; width: min(320px, 70%); height: 4px; margin-top: 14px; border-radius: 4px; overflow: hidden; background: var(--surface-3); }
+.run-bar span { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: 4px; background: var(--brand-grad); animation: run-bar 1.3s var(--ease-out) infinite; }
+@keyframes run-dot { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+@keyframes run-bar { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
 @keyframes slide-in { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
 
 /* 装饰色（只用于图标底色、横幅、强调条，不用于涨跌和图表数据） */

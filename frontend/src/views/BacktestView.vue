@@ -92,12 +92,20 @@ onMounted(async () => {
     </aside>
 
     <section class="result">
-      <NSpin :show="running" description="正在回测…">
+      <!-- 已有报告时再次回测：在报告上加遮罩；还没有报告时：空状态卡片本身变成加载状态，避免文字叠在一起 -->
+      <NSpin :show="running && !!result" description="正在回测…">
         <BacktestReport v-if="result" :key="result.id" :data="result" />
-        <div v-else class="empty card">
+        <div v-else class="empty card" :class="{ busy: running }">
           <EmptyChart />
-          <h3>选择策略、设置参数后开始回测</h3>
-          <p class="muted">回测引擎在每个交易日收盘生成信号、次日开盘成交，并模拟手续费、印花税、滑点、涨跌停与期货保证金。</p>
+          <template v-if="running">
+            <h3 class="run-title">正在回测<span class="run-dots"><i /><i /><i /></span></h3>
+            <p class="muted">正在加载行情、逐日撮合交易并计算指标，通常只需几秒</p>
+            <div class="run-bar"><span /></div>
+          </template>
+          <template v-else>
+            <h3>选择策略、设置参数后开始回测</h3>
+            <p class="muted">回测引擎在每个交易日收盘生成信号、次日开盘成交，并模拟手续费、印花税、滑点、涨跌停与期货保证金。</p>
+          </template>
         </div>
       </NSpin>
     </section>
