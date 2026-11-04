@@ -23,6 +23,9 @@ importers:
       markdown-it:
         specifier: ^14.1.0
         version: 14.3.3
+      markdown-it-cjk-friendly:
+        specifier: 3.0.0
+        version: 3.0.0(@types/markdown-it@14.2.0)(markdown-it@14.3.3)
       naive-ui:
         specifier: ^2.41.0
         version: 2.45.3(vue@3.5.44(typescript@5.7.3))
@@ -564,6 +567,10 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  get-east-asian-width@1.7.0:
+    resolution: {integrity: sha512-XjH1AECxf0giL2V1aU8vKyRR2ppRUb5c0EvT7zuJTokQ74bNo52zOtghqdWIqrhUD79fo3x0WfKZdOqxF6LG1Q==}
+    engines: {node: '>=18'}
+
   he@1.2.0:
     resolution: {integrity: sha512-F/1DnUGPopORZi0ni+CvrCgHQ5FyEAHRLSApuYWMmrbSwoN2Mn/7k+Gl38gJnR7yyDZk6WLXwiGod1JOWNDKGw==}
     hasBin: true
@@ -592,6 +599,16 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  markdown-it-cjk-friendly@3.0.0:
+    resolution: {integrity: sha512-y4OkqwenFXmb1i3w7qfh9E60qNX6U4KzECke8N/7io9SARFSvbR/wde0q/l6/Az9doieLOIw7ZsbDSgl27DR4g==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/markdown-it': '>=14.2.0'
+      markdown-it: '*'
+    peerDependenciesMeta:
+      '@types/markdown-it':
+        optional: true
 
   markdown-it@14.3.3:
     resolution: {integrity: sha512-L//tDAkjTjJCU6pBUSBTgs3Kg4InVaZuUZog/b6V12UKhcDQ7S78877ibbCanRExwPuYP1CZD7Gd2dxSy1GXRg==}
@@ -1208,6 +1225,8 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
+  get-east-asian-width@1.7.0: {}
+
   he@1.2.0: {}
 
   highlight.js@11.12.0: {}
@@ -1229,6 +1248,13 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  markdown-it-cjk-friendly@3.0.0(@types/markdown-it@14.2.0)(markdown-it@14.3.3):
+    dependencies:
+      get-east-asian-width: 1.7.0
+      markdown-it: 14.3.3
+    optionalDependencies:
+      '@types/markdown-it': 14.2.0
 
   markdown-it@14.3.3:
     dependencies:

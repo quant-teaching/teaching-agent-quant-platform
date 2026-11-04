@@ -132,28 +132,6 @@ a { color: var(--primary); text-decoration: none; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-/* Markdown 正文 */
-.md { font-size: 14px; line-height: 1.75; color: var(--text-1); word-break: break-word; }
-.md > :first-child { margin-top: 0; }
-.md > :last-child { margin-bottom: 0; }
-.md h1 { font-size: 20px; margin: 18px 0 10px; }
-.md h2 { font-size: 16.5px; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.md h3 { font-size: 15px; margin: 16px 0 6px; }
-.md p { margin: 8px 0; }
-.md ul, .md ol { padding-left: 22px; margin: 6px 0; }
-.md li { margin: 3px 0; }
-.md strong { font-weight: 650; }
-.md blockquote { margin: 10px 0; padding: 6px 14px; border-left: 3px solid var(--primary); background: var(--primary-soft); border-radius: 0 8px 8px 0; color: var(--text-2); }
-.md blockquote p { margin: 4px 0; }
-.md code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; }
-.md pre { background: var(--surface-2); border: 1px solid var(--border); padding: 12px 14px; border-radius: 10px; overflow-x: auto; }
-.md pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.6; }
-.md table { border-collapse: collapse; margin: 10px 0; font-size: 13px; width: auto; max-width: 100%; display: block; overflow-x: auto; }
-.md th, .md td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; white-space: nowrap; }
-.md th { background: var(--surface-2); font-weight: 600; color: var(--text-2); }
-.md td { font-variant-numeric: tabular-nums; }
-.md hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
-
 /* 代码高亮（跟随浅色 / 深色主题） */
 :root { --hl-kw: #a626a4; --hl-str: #2e7d32; --hl-num: #b45309; --hl-com: #8a909c; --hl-fn: #1c5cab; --hl-bi: #0e7490; }
 :root[data-theme="dark"] { --hl-kw: #c792ea; --hl-str: #a5d6a7; --hl-num: #f0b43c; --hl-com: #8d8c84; --hl-fn: #86b6ef; --hl-bi: #67d4e6; }

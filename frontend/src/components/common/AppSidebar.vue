@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookOpen, ChevronsUpDown, FlaskConical, History, KeyRound, Layers, LogOut, MessageSquareText, Moon, Settings2, Sun } from 'lucide-vue-next'
+import { BookOpen, ChevronsUpDown, GraduationCap, FlaskConical, History, KeyRound, Layers, LogOut, MessageSquareText, Moon, Settings2, Sun } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NTooltip, useMessage } from 'naive-ui'
 import { computed, h, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
@@ -41,9 +41,10 @@ async function changePassword() {
 
 const items = [
   { to: '/chat', name: 'chat', label: '智能助手', icon: MessageSquareText, tone: 'blue' },
+  { to: '/learn', name: 'learn', label: '新手教程', icon: GraduationCap, tone: 'amber', badge: '入门' },
   { to: '/library', name: 'library', label: '算法库', icon: BookOpen, also: ['strategy'], tone: 'violet' },
   { to: '/backtest', name: 'backtest', label: '回测实验室', icon: FlaskConical, tone: 'teal' },
-  { to: '/portfolio', name: 'portfolio', label: '组合实验室', icon: Layers, tone: 'amber' },
+  { to: '/portfolio', name: 'portfolio', label: '组合实验室', icon: Layers, tone: 'green' },
   { to: '/history', name: 'history', label: '回测记录', icon: History, also: ['report'], tone: 'rose' },
 ]
 
@@ -69,6 +70,7 @@ const activeIndex = computed(() => items.findIndex(active))
       <RouterLink v-for="it in items" :key="it.to" :to="it.to" class="nav-item" :class="[{ active: active(it) }, `tone-${it.tone}`]">
         <span class="nav-ic"><component :is="it.icon" :size="16" :stroke-width="2" /></span>
         <span>{{ it.label }}</span>
+        <span v-if="it.badge" class="badge">{{ it.badge }}</span>
       </RouterLink>
     </nav>
 
@@ -155,6 +157,10 @@ const activeIndex = computed(() => items.findIndex(active))
 .nav-ic {
   width: 26px; height: 26px; margin-left: -4px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0;
   color: var(--tone); background: var(--tone-soft); transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+}
+.badge {
+  margin-left: auto; padding: 0 7px; border-radius: 999px; font-size: 11px; font-weight: 650; line-height: 18px;
+  color: var(--tone); background: var(--tone-soft); border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
 }
 .nav-item.active .nav-ic { color: #fff; background: var(--tone); box-shadow: 0 4px 12px color-mix(in srgb, var(--tone) 40%, transparent); }
 .nav-item:hover { background: var(--surface-3); color: var(--text-1); }

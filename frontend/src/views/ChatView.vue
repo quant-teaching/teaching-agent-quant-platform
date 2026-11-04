@@ -286,6 +286,7 @@ onMounted(async () => {
             <div class="hero-icon"><span class="ring" /><img src="/logo.svg" width="44" height="44" alt="" /></div>
             <h1>你好，我是量化策略教学助手</h1>
             <p>用自然语言调取 22 种经典量化算法、修改参数、执行历史回测，我会解读报告并解释每一条优化建议背后的原理。</p>
+            <RouterLink to="/learn" class="learn-chip"><GraduationCap :size="15" /> 第一次来？先看看零基础新手教程 <ArrowUpRight :size="14" /></RouterLink>
             <div class="sugs stagger">
               <button v-for="s in suggestions" :key="s.text" class="sug" :class="`tone-${s.tone}`" @click="send(s.text)">
                 <div class="sug-title"><span class="ic-tile"><component :is="s.icon" :size="15" /></span> {{ s.title }}<ArrowUpRight :size="15" class="go" /></div>
@@ -367,7 +368,14 @@ onMounted(async () => {
   font-size: 26px; font-weight: 700; margin: 0 0 8px; letter-spacing: 0.3px;
   background: var(--brand-text); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.welcome p { color: var(--text-2); margin: 0 auto 28px; max-width: 560px; }
+.welcome p { color: var(--text-2); margin: 0 auto 14px; max-width: 560px; }
+.learn-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin-bottom: 24px; padding: 5px 14px; border-radius: 999px; font-size: 13px; font-weight: 550;
+  color: var(--t-amber); background: var(--t-amber-soft); border: 1px dashed color-mix(in srgb, var(--t-amber) 45%, transparent);
+  transition: transform 0.25s var(--ease-out), box-shadow 0.25s;
+}
+.learn-chip:hover { transform: translateY(-2px); box-shadow: 0 6px 16px color-mix(in srgb, var(--t-amber) 25%, transparent); }
+.welcome > .learn-chip { animation-delay: 0.16s; }
 .sugs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; text-align: left; }
 .sug { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px; cursor: pointer; font-family: inherit; color: inherit; transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s; text-align: left; }
 .sug:hover { border-color: color-mix(in srgb, var(--tone) 50%, var(--border)); box-shadow: var(--shadow-md); transform: translateY(-3px); }

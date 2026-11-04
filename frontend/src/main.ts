@@ -5,6 +5,7 @@ import { setUnauthorizedHandler } from './api/client'
 import { router } from './router'
 import './styles/base.css'
 import './styles/motion.css'
+import './styles/content.css'
 import './charts/register'
 
 const app = createApp(App).use(createPinia()).use(router)

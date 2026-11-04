@@ -57,7 +57,7 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
             <ToolCard v-if="t.card && !collapsed[t.id]" :card="t.card" @open="emit('open', $event)" />
           </div>
         </div>
-        <MarkdownView v-else :source="g.text + (msg.streaming && g.last ? ' ▍' : '')" class="text" />
+        <MarkdownView v-else breaks :source="g.text + (msg.streaming && g.last ? ' ▍' : '')" class="text" />
       </template>
 
       <div v-if="thinking" class="thinking"><span /><span /><span /></div>
@@ -92,7 +92,14 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
 .bubble { max-width: 78%; background: var(--brand-grad); color: #fff; padding: 9px 14px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.6; box-shadow: var(--shadow-sm); }
 .avatar { width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; display: grid; place-items: center; background: var(--brand-grad); color: #fff; margin-top: 2px; box-shadow: 0 4px 12px rgba(42, 120, 214, 0.25); }
 .body { flex: 1; min-width: 0; }
-.text { margin: 4px 0; }
+.text {
+  position: relative; margin: 4px 0; padding: 14px 18px 14px 20px; border-radius: 4px 16px 16px 16px;
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+}
+.text::before {
+  content: ""; position: absolute; left: -1px; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; background: var(--brand-grad);
+}
+.text + .text { margin-top: 8px; }
 .steps { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 8px; }
 .step { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); font-size: 12.5px; padding: 3px 10px; border-radius: 999px; cursor: pointer; font-family: inherit; }
 .step { transition: border-color 0.2s, background 0.2s, color 0.2s; }

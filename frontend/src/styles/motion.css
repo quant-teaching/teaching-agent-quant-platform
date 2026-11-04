@@ -106,6 +106,7 @@ body {
   --t-teal: #0f9fa6; --t-teal-soft: rgba(15, 159, 166, 0.12);
   --t-amber: #d98a00; --t-amber-soft: rgba(237, 161, 0, 0.14);
   --t-rose: #d6457a; --t-rose-soft: rgba(214, 69, 122, 0.12);
+  --t-green: #3a9a3a; --t-green-soft: rgba(58, 154, 58, 0.12);
 }
 :root[data-theme="dark"] {
   --t-blue: #5aa2f0; --t-blue-soft: rgba(90, 162, 240, 0.16);
@@ -113,6 +114,7 @@ body {
   --t-teal: #3cc8cf; --t-teal-soft: rgba(60, 200, 207, 0.14);
   --t-amber: #f0b43c; --t-amber-soft: rgba(240, 180, 60, 0.14);
   --t-rose: #ec7aa3; --t-rose-soft: rgba(236, 122, 163, 0.15);
+  --t-green: #6cc46c; --t-green-soft: rgba(108, 196, 108, 0.14);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -121,6 +123,7 @@ body {
     --t-teal: #3cc8cf; --t-teal-soft: rgba(60, 200, 207, 0.14);
     --t-amber: #f0b43c; --t-amber-soft: rgba(240, 180, 60, 0.14);
     --t-rose: #ec7aa3; --t-rose-soft: rgba(236, 122, 163, 0.15);
+    --t-green: #6cc46c; --t-green-soft: rgba(108, 196, 108, 0.14);
   }
 }
 .tone-blue { --tone: var(--t-blue); --tone-soft: var(--t-blue-soft); }
@@ -128,6 +131,7 @@ body {
 .tone-teal { --tone: var(--t-teal); --tone-soft: var(--t-teal-soft); }
 .tone-amber { --tone: var(--t-amber); --tone-soft: var(--t-amber-soft); }
 .tone-rose { --tone: var(--t-rose); --tone-soft: var(--t-rose-soft); }
+.tone-green { --tone: var(--t-green); --tone-soft: var(--t-green-soft); }
 
 /* 彩色图标块 */
 .ic-tile {

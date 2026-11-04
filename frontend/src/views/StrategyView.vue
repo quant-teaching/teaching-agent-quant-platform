@@ -87,7 +87,7 @@ async function removeDerived() {
 
         <NTabs v-model:value="tab" type="line" animated>
           <NTabPane name="doc" tab="教学说明">
-            <div class="card card-pad doc"><MarkdownView :source="s.doc || '暂无说明文档'" /></div>
+            <div class="notebook doc"><MarkdownView :source="s.doc || '暂无说明文档'" /></div>
           </NTabPane>
           <NTabPane name="params" :tab="`参数（${s.params.length}）`">
             <div class="card card-pad">
@@ -140,7 +140,7 @@ async function removeDerived() {
 .cat.futures { background: var(--warn-soft); color: var(--warn); }
 .page-head p { font-size: 14px; color: var(--text-2); max-width: 760px; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
-.doc { max-width: 920px; padding: 24px 32px; }
+.doc { max-width: 960px; }
 .p-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
 .code-card { overflow: hidden; }
 .code-head { padding: 10px 16px; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12px; background: var(--surface-2); }

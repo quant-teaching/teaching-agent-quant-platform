@@ -7,6 +7,7 @@ export const router = createRouter({
     { path: '/', redirect: '/chat' },
     { path: '/login', name: 'login', component: () => import('./views/LoginView.vue'), meta: { title: '登录', bare: true } },
     { path: '/chat/:sessionId?', name: 'chat', component: () => import('./views/ChatView.vue'), meta: { title: '智能助手', full: true } },
+    { path: '/learn/:id?', name: 'learn', component: () => import('./views/LearnView.vue'), meta: { title: '新手教程' } },
     { path: '/library', name: 'library', component: () => import('./views/LibraryView.vue'), meta: { title: '算法库' } },
     { path: '/library/:id', name: 'strategy', component: () => import('./views/StrategyView.vue'), meta: { title: '策略详情' } },
     { path: '/backtest', name: 'backtest', component: () => import('./views/BacktestView.vue'), meta: { title: '回测实验室' } },
