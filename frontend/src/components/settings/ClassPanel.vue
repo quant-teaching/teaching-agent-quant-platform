@@ -149,7 +149,7 @@ const openClass = computed(() => classes.value.find((c) => c.id === openId.value
                 <span :style="{ width: c.student_count ? `${(c.active_7d / c.student_count) * 100}%` : '0%' }" />
               </div>
               <div class="ticket" :class="{ off: !c.registration_open }" @click.stop>
-                <span class="tk-l">邀请码</span>
+                <span class="tk-l">通用邀请码</span>
                 <code>{{ c.invite_code }}</code>
                 <button title="复制注册网址和邀请码" @click="copyInvite(c)"><Copy :size="14" /></button>
                 <label class="tk-sw"><NSwitch size="small" :value="c.registration_open" @update:value="(v: boolean) => toggleReg(c, v)" />{{ c.registration_open ? '开放注册' : '已关闭' }}</label>

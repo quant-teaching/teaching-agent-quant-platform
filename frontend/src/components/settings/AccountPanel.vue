@@ -2,7 +2,8 @@
 // 个人账号：查看身份和所属班级，修改显示名称与密码
 import { KeyRound, School, UserRound } from 'lucide-vue-next'
 import { NButton, NForm, NFormItem, NInput, useMessage } from 'naive-ui'
-import { reactive, ref, watch } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
+import { accountsApi, type QuotaStatus } from '@/api/accounts'
 import { api } from '@/api/client'
 import { useAuth } from '@/stores/auth'
 
@@ -12,6 +13,8 @@ const name = ref(auth.user?.display_name ?? '')
 watch(() => auth.user?.display_name, (v) => { name.value = v ?? '' })
 const savingName = ref(false)
 const pwd = reactive({ old: '', new: '', confirm: '', saving: false })
+const q = ref<QuotaStatus | null>(null)
+onMounted(async () => { if (auth.user) q.value = await accountsApi.myQuota().catch(() => null) })
 
 async function saveName() {
   savingName.value = true
@@ -41,6 +44,14 @@ async function savePwd() {
         <em>用户名 {{ auth.user.username }} · {{ auth.user.role_label }}<template v-if="auth.user.class_name"> · {{ auth.user.class_name }}</template></em>
       </div>
       <span v-if="auth.user.class_name" class="cls"><School :size="14" /> {{ auth.user.class_name }}</span>
+    </section>
+    <section v-if="auth.user && q" class="card card-pad usage">
+      <div>
+        <h3 class="section-title">今天的平台模型额度</h3>
+        <p class="section-sub">{{ q.limit === null ? '不限次数' : `每天 ${q.limit} 次（${q.source}），每天 0 点重置` }}{{ auth.user.allow_platform ? '' : ' · 你的平台模型使用权限已被关闭' }}；使用自己添加的模型渠道不占额度</p>
+      </div>
+      <div class="u-num"><b>{{ q.used }}</b><span>/ {{ q.limit === null ? '不限' : q.limit }}</span></div>
+      <div v-if="q.limit !== null" class="u-bar"><span :style="{ width: `${Math.min(100, (q.used / Math.max(q.limit, 1)) * 100)}%` }" /></div>
     </section>
     <section v-else class="card card-pad"><p class="muted">平台未开启账号登录，所有功能直接可用，无需个人账号设置。</p></section>
 
@@ -76,6 +87,12 @@ async function savePwd() {
 .me-t b { font-size: 18px; }
 .me-t em { font-style: normal; font-size: 13px; color: var(--text-3); }
 .cls { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 999px; font-size: 13px; color: var(--t-violet); background: var(--t-violet-soft); }
+.usage { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 14px; }
+.usage > div:first-child { flex: 1; min-width: 240px; }
+.u-num b { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.u-num span { margin-left: 4px; color: var(--text-3); }
+.u-bar { flex-basis: 100%; height: 6px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+.u-bar span { display: block; height: 100%; border-radius: 6px; background: var(--brand-grad); transition: width 0.6s var(--ease-out); }
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
 .ti { vertical-align: -2px; margin-right: 2px; }
 @media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }

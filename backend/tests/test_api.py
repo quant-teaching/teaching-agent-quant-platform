@@ -234,7 +234,7 @@ def scripted(turns):
     """按顺序返回预设的模型输出：每一轮是 (文本, [工具调用])。"""
     it = iter(turns)
 
-    async def fake_stream(messages, tools=None, prefer=None):
+    async def fake_stream(messages, tools=None, prefer=None, user=None):
         text, calls = next(it)
         yield {"type": "model", "provider": "假接口", "model": "fake", "fallback": False}
         for ch in text:
@@ -288,7 +288,7 @@ def test_agent_tool_loop_disclaimer_and_fact_check(client, monkeypatch):
 def test_agent_fact_check_passes_for_real_numbers(client, monkeypatch):
     captured = {}
 
-    async def fake(messages, tools=None, prefer=None):
+    async def fake(messages, tools=None, prefer=None, user=None):
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
         if not tool_msgs:
             yield {"type": "done", "completion": Completion(tool_calls=[ToolCall(
@@ -309,7 +309,7 @@ def test_agent_fact_check_passes_for_real_numbers(client, monkeypatch):
 def test_agent_tool_error_is_fed_back(client, monkeypatch):
     seen = {}
 
-    async def fake(messages, tools=None, prefer=None):
+    async def fake(messages, tools=None, prefer=None, user=None):
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
         if not tool_msgs:
             yield {"type": "done", "completion": Completion(tool_calls=[ToolCall(
@@ -335,7 +335,7 @@ def test_investment_advice_detection():
 def test_compliance_hint_injected(client, monkeypatch):
     got = {}
 
-    async def fake(messages, tools=None, prefer=None):
+    async def fake(messages, tools=None, prefer=None, user=None):
         got["sys"] = [m["content"] for m in messages if m["role"] == "system"]
         yield {"type": "done", "completion": Completion(content="本平台仅用于教学。")}
 
@@ -439,12 +439,12 @@ def test_chat_model_choice_puts_selected_model_first(client):
         groups = {g["provider"]: g["models"] for g in data["groups"]}
         assert groups["甲接口"][:2] == ["m-main", "m-other"] and groups["乙接口"] == ["m-b"]
 
-        chain = llm._chain(llm.get_routing(), llm.ModelRef(provider_id=a.id, model="m-other"))
+        chain = llm.plan(llm.ModelRef(provider_id=a.id, model="m-other"))
         assert [(p.name, m) for p, m in chain] == [("甲接口", "m-other"), ("甲接口", "m-main"), ("乙接口", "m-b")]
-        chain = llm._chain(llm.get_routing(), llm.ModelRef(provider_id=b.id, model="m-b"))
+        chain = llm.plan(llm.ModelRef(provider_id=b.id, model="m-b"))
         assert [(p.name, m) for p, m in chain] == [("乙接口", "m-b"), ("甲接口", "m-main")]
         with pytest.raises(llm.LLMError, match="所选模型不可用"):
-            llm._chain(llm.get_routing(), llm.ModelRef(provider_id=b.id, model="not-listed"))
+            llm.plan(llm.ModelRef(provider_id=b.id, model="not-listed"))
     finally:
         llm.save_routing(old)
         llm.delete_provider(a.id)

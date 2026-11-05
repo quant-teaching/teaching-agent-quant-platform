@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // 设置：按角色显示不同的分区。学生：个人账号、模型接口（只读）；老师：再加班级管理；管理员：再加用户管理和注册设置
-import { Cpu, Presentation, School, Settings2, UserRound, Users } from 'lucide-vue-next'
+import { Cpu, Presentation, School, Server, Settings2, UserRound, Users } from 'lucide-vue-next'
 import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PageHero from '@/components/common/PageHero.vue'
 import AccountPanel from '@/components/settings/AccountPanel.vue'
 import ClassPanel from '@/components/settings/ClassPanel.vue'
 import ModelPanel from '@/components/settings/ModelPanel.vue'
+import MyModelsPanel from '@/components/settings/MyModelsPanel.vue'
 import RegisterPanel from '@/components/settings/RegisterPanel.vue'
 import UserPanel from '@/components/settings/UserPanel.vue'
 import { useAuth } from '@/stores/auth'
@@ -26,7 +27,9 @@ const tabs = computed<Tab[]>(() => {
     out.push({ key: 'users', label: '用户管理', desc: '全部账号增删改查', icon: Users, tone: 'rose', comp: UserPanel })
     out.push({ key: 'register', label: '注册设置', desc: '教师注册码', icon: Presentation, tone: 'amber', comp: RegisterPanel })
   }
-  out.push({ key: 'model', label: '模型接口', desc: role === 'admin' || !auth.enabled ? '接口与主备顺序' : '查看当前使用的模型', icon: Cpu, tone: 'teal', comp: ModelPanel })
+  if (auth.enabled && role !== 'admin')
+    out.push({ key: 'mine', label: '我的模型', desc: '添加自己的模型渠道', icon: Server, tone: 'green', comp: MyModelsPanel })
+  out.push({ key: 'model', label: role === 'admin' || !auth.enabled ? '模型接口' : '平台模型', desc: role === 'admin' || !auth.enabled ? '接口与主备顺序' : '查看当前使用的模型', icon: Cpu, tone: 'teal', comp: ModelPanel })
   return out
 })
 const defaultTab = computed(() => (auth.user?.role === 'teacher' || auth.user?.role === 'admin' ? 'classes' : tabs.value[0].key))

@@ -4,6 +4,7 @@ import { Copy, Dices, GraduationCap, Presentation } from 'lucide-vue-next'
 import { NButton, NInput, NSwitch, NTag, NTooltip, useMessage } from 'naive-ui'
 import { computed, onMounted, reactive } from 'vue'
 import { accountsApi, copyText } from '@/api/accounts'
+import OnceCodes from './OnceCodes.vue'
 
 const toast = useMessage()
 const inv = reactive({ code: '', enabled: false, source: 'env', saved: { code: '', enabled: false }, saving: false })
@@ -44,8 +45,8 @@ async function copy() {
     <section class="card card-pad">
       <div class="head">
         <div>
-          <h3 class="section-title"><Presentation :size="16" class="ti" /> 教师注册码</h3>
-          <p class="section-sub">老师在登录页选择「注册 → 我是老师」并填写这个注册码，即可注册老师账号，之后自行创建班级。修改后立即生效，旧注册码失效。</p>
+          <h3 class="section-title"><Presentation :size="16" class="ti" /> 通用教师注册码</h3>
+          <p class="section-sub">可以反复使用：老师在登录页选择「注册 → 我是老师」并填写它即可注册，之后自行创建班级。可以随时更换、关闭或重新开启，修改后旧码立即失效。想逐个发放、用一次就失效，请用下方的一次性注册码。</p>
         </div>
         <NTag :bordered="false" round :type="inv.saved.enabled ? 'success' : 'default'">{{ inv.saved.enabled ? '开放老师注册' : '未开放老师注册' }}</NTag>
       </div>
@@ -62,10 +63,12 @@ async function copy() {
       </div>
     </section>
 
+    <OnceCodes kind="teacher" class-name="教师" />
+
     <section class="card card-pad how">
       <h3 class="section-title"><GraduationCap :size="16" class="ti" /> 学生怎么注册？</h3>
       <ol>
-        <li>老师登录后在「设置 → 班级管理」里新建班级，系统会为每个班级生成独立的<b>班级邀请码</b>；</li>
+        <li>老师登录后在「设置 → 班级管理」里新建班级，系统会为每个班级生成独立的<b>通用班级邀请码</b>，也可以批量生成<b>一次性注册码</b>；</li>
         <li>老师把邀请码发给学生，学生在登录页选择「注册 → 我是学生」并填写邀请码，就会进入对应班级；</li>
         <li>每个班级可以单独开关注册、更换邀请码；也可以下载模板批量导入学生名单，直接生成账号和初始密码。</li>
       </ol>

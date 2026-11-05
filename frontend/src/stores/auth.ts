@@ -11,6 +11,8 @@ export interface AuthUser {
   role_label: string
   class_id: number | null
   class_name: string | null
+  allow_platform: boolean
+  allow_own: boolean
   disabled: boolean
   created_at: string
   last_login: string | null

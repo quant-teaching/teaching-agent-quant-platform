@@ -11,6 +11,7 @@ export interface ClassInfo {
   teacher_name: string | null
   invite_code: string
   registration_open: boolean
+  quota_daily: number | null
   created_at: string
   student_count: number
   disabled_count: number
@@ -31,8 +32,26 @@ export interface ManagedUser {
   last_login: string | null
   backtest_count: number
   chat_count: number
+  quota_daily: number | null
+  allow_platform: boolean
+  allow_own: boolean
+  quota: { limit: number | null; used: number; source: string }
+  own_channels: number
   initial_password?: string
 }
+
+export interface OnceCode {
+  code: string
+  kind: 'student' | 'teacher'
+  class_id: number | null
+  note: string
+  state: 'unused' | 'used' | 'revoked'
+  created_at: string
+  used_by: number | null
+  used_by_name: string | null
+  used_at: string | null
+}
+export interface QuotaStatus { limit: number | null; used: number; remaining: number | null; source: string }
 
 export interface ImportRow { row: number; username: string; display_name: string; password: string; error: string | null }
 export interface ImportResult { class_name: string; total: number; valid: number; rows: ImportRow[]; created: boolean }
@@ -54,11 +73,19 @@ export const accountsApi = {
   },
   createUser: (body: { username: string; display_name?: string; password?: string; role?: Role; class_id?: number | null }) =>
     api.post<ManagedUser>('/api/users', body),
-  updateUser: (id: number, body: Partial<Pick<ManagedUser, 'display_name' | 'role' | 'class_id' | 'disabled'>>) =>
+  updateUser: (id: number, body: Partial<Pick<ManagedUser, 'display_name' | 'role' | 'class_id' | 'disabled' | 'quota_daily' | 'allow_platform' | 'allow_own'>>) =>
     api.patch<ManagedUser>(`/api/users/${id}`, body),
   resetPassword: (id: number, password = '') => api.post<{ ok: boolean; password: string }>(`/api/users/${id}/reset-password`, { password }),
   deleteUser: (id: number) => api.del(`/api/users/${id}`),
   userBacktests: (id: number) => api.get<{ id: string; kind: string; title: string; start: string; end: string; source: string; summary: Record<string, number>; created_at: string }[]>(`/api/users/${id}/backtests`),
+  classCodes: (id: number) => api.get<OnceCode[]>(`/api/classes/${id}/codes`),
+  createClassCodes: (id: number, count: number, note = '') => api.post<OnceCode[]>(`/api/classes/${id}/codes`, { count, note }),
+  teacherCodes: () => api.get<OnceCode[]>('/api/auth/teacher-codes'),
+  createTeacherCodes: (count: number, note = '') => api.post<OnceCode[]>('/api/auth/teacher-codes', { count, note }),
+  revokeCode: (code: string) => api.del(`/api/codes/${encodeURIComponent(code)}`),
+  quotaDefaults: () => api.get<{ teacher: number | null; student: number | null }>('/api/quota/defaults'),
+  setQuotaDefaults: (teacher: number | null, student: number | null) => api.put<{ teacher: number | null; student: number | null }>('/api/quota/defaults', { teacher, student }),
+  myQuota: () => api.get<QuotaStatus>('/api/quota/me'),
   teacherInvite: () => api.get<{ code: string; enabled: boolean; source: string }>('/api/auth/teacher-invite'),
   setTeacherInvite: (code: string, enabled: boolean) => api.put<{ code: string; enabled: boolean; source: string }>('/api/auth/teacher-invite', { code, enabled }),
 }
@@ -93,4 +120,9 @@ export function fileToBase64(file: File): Promise<string> {
     r.onerror = () => reject(new Error('读取文件失败'))
     r.readAsDataURL(file)
   })
+}
+
+/** 每日额度的显示文字：null 表示不限 */
+export function quotaText(limit: number | null | undefined) {
+  return limit === null || limit === undefined ? '不限' : `${limit} 次/天`
 }

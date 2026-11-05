@@ -20,8 +20,8 @@ from typing import Any
 from fastapi import HTTPException
 from sqlmodel import Session, func, select
 
-from . import auth
-from .db import AuthSession, BacktestRecord, ChatSession, ClassRoom, User, engine, now
+from . import auth, quota
+from .db import AuthSession, BacktestRecord, ChatSession, ClassRoom, InviteCode, LLMProvider, User, engine, now
 
 ROLES = ("admin", "teacher", "student")
 IMPORT_COLUMNS = ("用户名", "姓名", "初始密码")
@@ -138,6 +138,7 @@ def class_public(s: Session, room: ClassRoom, teachers: dict[int, str] | None = 
         "teacher_id": room.teacher_id, "teacher_name": teachers.get(room.teacher_id) if room.teacher_id else None,
         "invite_code": room.invite_code, "registration_open": room.registration_open,
         "created_at": room.created_at.isoformat(),
+        "quota_daily": room.quota_daily,
         "student_count": len(students),
         "disabled_count": sum(1 for u in students if u.disabled),
         "active_7d": sum(1 for u in students if u.last_login and u.last_login >= week),
@@ -197,6 +198,9 @@ def update_class(class_id: int, data: dict[str, Any]) -> dict[str, Any]:
             if (other and other.id != room.id) or code == auth.teacher_invite_config()["code"]:
                 raise HTTPException(400, "这个邀请码已经被使用，请换一个")
             room.invite_code = code
+        if "quota_daily" in data:  # 显式传 null 表示沿用角色默认值
+            quota.check_value(data["quota_daily"])
+            room.quota_daily = data["quota_daily"]
         if data.get("teacher_id") is not None:
             if me.role != "admin":
                 raise HTTPException(403, "只有管理员可以更换班级的负责老师")
@@ -259,6 +263,10 @@ def _user_row(s: Session, u: User, classes: dict[int, str]) -> dict[str, Any]:
     d["backtest_count"] = int(s.exec(select(func.count()).select_from(BacktestRecord)
                                      .where(BacktestRecord.user_id == u.id)).one())
     d["chat_count"] = int(s.exec(select(func.count()).select_from(ChatSession).where(ChatSession.user_id == u.id)).one())
+    limit, source = quota.effective(u, s)
+    d.update(quota_daily=u.quota_daily, allow_platform=u.allow_platform, allow_own=u.allow_own,
+             quota={"limit": limit, "used": quota.used_today(u.id, s), "source": source},
+             own_channels=len(s.exec(select(LLMProvider.id).where(LLMProvider.owner_id == u.id)).all()))
     return d
 
 
@@ -331,6 +339,15 @@ def update_user(user_id: int, data: dict[str, Any]) -> dict[str, Any]:
             if u.id == me.id:
                 raise HTTPException(400, "不能停用自己的账号")
             u.disabled = bool(data["disabled"])
+        if "quota_daily" in data:  # 显式传 null 表示沿用班级或角色默认值
+            quota.check_value(data["quota_daily"])
+            u.quota_daily = data["quota_daily"]
+        if data.get("allow_platform") is not None:  # 老师可以开关本班学生使用平台模型
+            u.allow_platform = bool(data["allow_platform"])
+        if data.get("allow_own") is not None:
+            if me.role != "admin":
+                raise HTTPException(403, "只有管理员可以开关「使用自己的模型渠道」")
+            u.allow_own = bool(data["allow_own"])
         if u.role == "student" and u.class_id is None:
             raise HTTPException(400, "学生账号需要属于一个班级")
         s.add(u)
@@ -477,3 +494,77 @@ def import_students(class_id: int, filename: str, content_b64: str, dry_run: boo
         return {"class_name": room.name, "total": len(out), "valid": len(ok), "rows": out, "created": not dry_run}
 
 
+
+
+# ---------------------------------------------------------------- 一次性注册码
+
+ONCE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # 去掉 0/O、1/I/L 等容易看错的字符
+
+
+def gen_once_code() -> str:
+    raw = "".join(secrets.choice(ONCE_ALPHABET) for _ in range(8))
+    return f"{raw[:4]}-{raw[4:]}"
+
+
+def _code_public(c: InviteCode, names: dict[int, str]) -> dict[str, Any]:
+    state = "revoked" if c.revoked else ("used" if c.used_by else "unused")
+    return {"code": c.code, "kind": c.kind, "class_id": c.class_id, "note": c.note, "state": state,
+            "created_at": c.created_at.isoformat(), "used_by": c.used_by,
+            "used_by_name": names.get(c.used_by) if c.used_by else None,
+            "used_at": c.used_at.isoformat() if c.used_at else None}
+
+
+def _check_code_scope(s: Session, me: User, kind: str, class_id: int | None) -> None:
+    if kind == "teacher":
+        if me.role != "admin":
+            raise HTTPException(403, "只有管理员可以生成教师注册码")
+    elif kind == "student":
+        if class_id is None:
+            raise HTTPException(400, "学生注册码需要指定班级")
+        _get_class(s, me, class_id)
+    else:
+        raise HTTPException(400, "注册码类型不正确")
+
+
+def create_codes(kind: str, class_id: int | None, count: int, note: str = "") -> list[dict[str, Any]]:
+    me = _me()
+    if not 1 <= count <= 200:
+        raise HTTPException(400, "一次可以生成 1~200 个")
+    with Session(engine()) as s:
+        _check_code_scope(s, me, kind, class_id)
+        made = []
+        while len(made) < count:
+            code = gen_once_code()
+            if s.get(InviteCode, code):
+                continue
+            row = InviteCode(code=code, kind=kind, class_id=class_id if kind == "student" else None,
+                             note=note.strip()[:40], created_by=me.id)
+            s.add(row)
+            made.append(row)
+        s.commit()
+        return [_code_public(c, {}) for c in made]
+
+
+def list_codes(kind: str, class_id: int | None = None) -> list[dict[str, Any]]:
+    me = _me()
+    with Session(engine()) as s:
+        _check_code_scope(s, me, kind, class_id)
+        q = select(InviteCode).where(InviteCode.kind == kind).order_by(InviteCode.created_at.desc())
+        if kind == "student":
+            q = q.where(InviteCode.class_id == class_id)
+        names = _user_names(s)
+        return [_code_public(c, names) for c in s.exec(q).all()]
+
+
+def revoke_code(code: str) -> None:
+    me = _me()
+    with Session(engine()) as s:
+        row = s.get(InviteCode, code.strip().upper())
+        if not row:
+            raise HTTPException(404, "注册码不存在")
+        _check_code_scope(s, me, row.kind, row.class_id)
+        if row.used_by:
+            raise HTTPException(400, "已经使用过的注册码不需要作废")
+        row.revoked = True
+        s.add(row)
+        s.commit()

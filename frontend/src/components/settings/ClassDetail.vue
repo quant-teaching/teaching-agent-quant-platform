@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // 班级详情：近 30 天活跃度图表 + 学生列表（新建、编辑、重置密码、停用、移班、删除、查看回测）+ 批量导入
-import { ArrowLeft, Copy, Download, FileUp, KeyRound, MoreHorizontal, Pencil, Search, Trash2, UserPlus, ArrowRightLeft, Ban, CircleCheck, LineChart } from 'lucide-vue-next'
-import { NButton, NDataTable, NDrawer, NDrawerContent, NDropdown, NEmpty, NForm, NFormItem, NInput, NModal, NSelect, NTag, useDialog, useMessage, type DataTableColumns } from 'naive-ui'
+import { ArrowLeft, Copy, Download, FileUp, KeyRound, MoreHorizontal, Pencil, Search, Trash2, UserPlus, ArrowRightLeft, Ban, CircleCheck, LineChart, Gauge } from 'lucide-vue-next'
+import { NButton, NDataTable, NDrawer, NDrawerContent, NDropdown, NEmpty, NForm, NFormItem, NInput, NModal, NSelect, NSwitch, NTag, NTooltip, useDialog, useMessage, type DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { computed, h, onMounted, reactive, ref } from 'vue'
-import { accountsApi, copyText, downloadCsv, type ClassInfo, type ManagedUser } from '@/api/accounts'
+import { accountsApi, copyText, downloadCsv, quotaText, type ClassInfo, type ManagedUser } from '@/api/accounts'
 import { axisStyle, baseOption, useChartTokens } from '@/charts/theme'
 import { pct, timeAgo } from '@/utils/format'
 import ImportModal from './ImportModal.vue'
+import OnceCodes from './OnceCodes.vue'
+import QuotaModal from './QuotaModal.vue'
 import PasswordReveal from './PasswordReveal.vue'
 
 const props = defineProps<{ room: ClassInfo; classes: ClassInfo[] }>()
@@ -126,6 +128,7 @@ const rowMenu = (u: ManagedUser) => [
   { key: 'reset', label: '重置密码', icon: () => h(KeyRound, { size: 14 }) },
   { key: 'move', label: '移到其他班级', icon: () => h(ArrowRightLeft, { size: 14 }), disabled: !others.value.length },
   { key: 'records', label: '查看回测记录', icon: () => h(LineChart, { size: 14 }) },
+  { key: 'quota', label: '设置每日次数', icon: () => h(Gauge, { size: 14 }) },
   { key: 'toggle', label: u.disabled ? '启用账号' : '停用账号', icon: () => h(u.disabled ? CircleCheck : Ban, { size: 14 }) },
   { type: 'divider', key: 'd' },
   { key: 'delete', label: '删除账号', icon: () => h(Trash2, { size: 14 }) },
@@ -135,6 +138,7 @@ function onRow(key: string, u: ManagedUser) {
   else if (key === 'reset') reset(u)
   else if (key === 'move') Object.assign(move, { show: true, user: u, target: null })
   else if (key === 'records') openRecords(u)
+  else if (key === 'quota') editUserQuota(u)
   else if (key === 'toggle') toggleDisabled(u)
   else if (key === 'delete') remove(u)
 }
@@ -153,6 +157,17 @@ const cols = computed<DataTableColumns<ManagedUser>>(() => [
   { title: '状态', key: 'disabled', width: 86,
     render: (u) => h(NTag, { size: 'small', round: true, bordered: false, type: u.disabled ? 'default' : (u.last_login ? 'success' : 'warning') },
       () => (u.disabled ? '已停用' : u.last_login ? '正常' : '未登录')) },
+  { title: '今日用量', key: 'quota', width: 110,
+    render: (u) => {
+      const l = u.quota.limit
+      const full = l !== null && u.quota.used >= l
+      return h(NTooltip, null, {
+        trigger: () => h('span', { class: ['use', { full }] }, [h('b', u.quota.used), ` / ${l === null ? '不限' : l}`]),
+        default: () => `每日上限来自${u.quota.source}`,
+      })
+    } },
+  { title: '平台模型', key: 'allow_platform', width: 90,
+    render: (u) => h(NSwitch, { size: 'small', value: u.allow_platform, onUpdateValue: (v: boolean) => togglePlatform(u, v) }) },
   { title: '回测', key: 'backtest_count', width: 72, align: 'right', sorter: (a, b) => a.backtest_count - b.backtest_count },
   { title: '对话', key: 'chat_count', width: 72, align: 'right', sorter: (a, b) => a.chat_count - b.chat_count },
   { title: '最近登录', key: 'last_login', width: 110, render: (u) => h('span', { class: 'muted' }, u.last_login ? timeAgo(u.last_login) : '从未登录'),
@@ -161,6 +176,30 @@ const cols = computed<DataTableColumns<ManagedUser>>(() => [
     render: (u) => h(NDropdown, { trigger: 'click', options: rowMenu(u), onSelect: (k: string) => onRow(k, u) },
       () => h(NButton, { size: 'small', quaternary: true, circle: true }, { icon: () => h(MoreHorizontal, { size: 16 }) })) },
 ])
+
+// ---------------- 额度与平台模型权限
+const qm = reactive({ show: false, title: '', value: null as number | null, target: null as ManagedUser | null, inheritLabel: '', hint: '' })
+function editClassQuota() {
+  Object.assign(qm, { show: true, title: `「${props.room.name}」学生默认每日次数`, value: props.room.quota_daily, target: null,
+    inheritLabel: '沿用平台默认值（由管理员设置）', hint: '' })
+}
+function editUserQuota(u: ManagedUser) {
+  Object.assign(qm, { show: true, title: `${u.display_name} 的每日次数`, value: u.quota_daily, target: u,
+    inheritLabel: `沿用班级默认（${quotaText(props.room.quota_daily)}）`, hint: '' })
+}
+async function saveQuota(v: number | null) {
+  try {
+    if (qm.target) Object.assign(qm.target, await accountsApi.updateUser(qm.target.id, { quota_daily: v }))
+    else { Object.assign(props.room, await accountsApi.updateClass(props.room.id, { quota_daily: v })); load() }
+    toast.success('额度已更新')
+  } catch (e: any) { toast.error(e.message) }
+}
+async function togglePlatform(u: ManagedUser, v: boolean) {
+  try {
+    Object.assign(u, await accountsApi.updateUser(u.id, { allow_platform: v }))
+    toast.success(v ? `已允许 ${u.display_name} 使用平台模型` : `已关闭 ${u.display_name} 的平台模型使用权限`)
+  } catch (e: any) { toast.error(e.message) }
+}
 
 const importShow = ref(false)
 async function copyInvite() {
@@ -184,9 +223,12 @@ function exportList() {
       <div class="dh-main">
         <h2>{{ room.name }}</h2>
         <p>{{ room.description || '暂无备注' }}<template v-if="room.teacher_name"> · 负责老师：{{ room.teacher_name }}</template></p>
+        <button class="quota-chip" title="设置本班学生的默认每日次数" @click="editClassQuota">
+          <Gauge :size="14" /> 学生默认额度：{{ room.quota_daily === null ? '沿用平台默认' : quotaText(room.quota_daily) }}
+        </button>
       </div>
       <div class="dh-ticket" :class="{ off: !room.registration_open }">
-        <span>班级邀请码</span>
+        <span>通用邀请码</span>
         <code>{{ room.invite_code }}</code>
         <button title="复制注册网址和邀请码" @click="copyInvite"><Copy :size="14" /></button>
         <em>{{ room.registration_open ? '开放注册中' : '已关闭注册' }}</em>
@@ -208,6 +250,8 @@ function exportList() {
       </section>
     </div>
 
+    <OnceCodes kind="student" :class-id="room.id" :class-name="room.name" />
+
     <section class="card card-pad">
       <div class="tb">
         <h3 class="section-title">学生（{{ students.length }}）</h3>
@@ -218,7 +262,7 @@ function exportList() {
         <NButton size="small" type="primary" @click="openForm()"><template #icon><UserPlus :size="14" /></template>添加学生</NButton>
       </div>
       <NEmpty v-if="!loading && !students.length" description="班级里还没有学生：可以把邀请码发给学生自行注册，或者批量导入名单" class="empty" />
-      <NDataTable v-else :columns="cols" :data="list" :loading="loading" size="small" :bordered="false" :pagination="{ pageSize: 20 }" :scroll-x="640" />
+      <NDataTable v-else :columns="cols" :data="list" :loading="loading" size="small" :bordered="false" :pagination="{ pageSize: 20 }" :scroll-x="820" />
     </section>
 
     <NModal v-model:show="form.show" preset="card" :title="form.id ? '修改学生信息' : '添加学生'" :bordered="false" style="width: 420px; max-width: calc(100vw - 32px)">
@@ -246,6 +290,7 @@ function exportList() {
       </NDrawerContent>
     </NDrawer>
 
+    <QuotaModal v-model:show="qm.show" :title="qm.title" :value="qm.value" :inherit-label="qm.inheritLabel" @save="saveQuota" />
     <ImportModal v-model:show="importShow" :class-id="room.id" :class-name="room.name" @done="changed" />
     <PasswordReveal v-model:show="reveal.show" :username="reveal.username" :password="reveal.password" :title="reveal.title" />
   </div>
@@ -283,6 +328,14 @@ function exportList() {
 :deep(.who b) { display: block; font-size: 13.5px; font-weight: 600; }
 :deep(.who em) { display: block; font-style: normal; font-size: 11.5px; color: var(--text-3); }
 .mv { margin: 0 0 10px; }
+.quota-chip {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 8px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--t-violet); background: var(--t-violet-soft); border: 1px dashed color-mix(in srgb, var(--t-violet) 40%, transparent);
+}
+.quota-chip:hover { border-style: solid; }
+:deep(.use) { font-variant-numeric: tabular-nums; color: var(--text-3); }
+:deep(.use b) { color: var(--text-1); font-weight: 650; }
+:deep(.use.full b) { color: var(--up); }
 .mv-btn { margin-top: 14px; }
 .rec { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: var(--text-1); border: 1px solid var(--border); margin-bottom: 8px; transition: background 0.15s; }
 .rec:hover { background: var(--surface-2); }

@@ -265,6 +265,7 @@ export interface Provider {
   has_key: boolean
   models: string[]
   enabled: boolean
+  owner_id?: number | null
   updated_at: string
 }
 

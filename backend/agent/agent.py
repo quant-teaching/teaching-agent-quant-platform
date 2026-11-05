@@ -212,7 +212,7 @@ def _tool_label(name: str, args: dict[str, Any]) -> str:
 
 
 async def run_turn(session_id: str | None, user_text: str,
-                   model: ModelRef | None = None) -> AsyncIterator[dict[str, Any]]:
+                   model: ModelRef | None = None, user: Any = None) -> AsyncIterator[dict[str, Any]]:
     cs = get_or_create_session(session_id)
     state = SessionState.load(cs.state_json)
     toolbox = Toolbox(state, cs.id)
@@ -237,7 +237,7 @@ async def run_turn(session_id: str | None, user_text: str,
     try:
         for _ in range(MAX_ROUNDS):
             completion = None
-            async for ev in stream_chat(messages + turn_msgs, TOOLS, prefer=model):
+            async for ev in stream_chat(messages + turn_msgs, TOOLS, prefer=model, user=user):
                 if ev["type"] == "done":
                     completion = ev["completion"]
                     continue

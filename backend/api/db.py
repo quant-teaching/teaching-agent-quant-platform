@@ -24,6 +24,7 @@ class LLMProvider(SQLModel, table=True):
     api_key: str = ""
     models_json: str = Field(default="[]", sa_column=Column(Text))  # 拉取到的模型列表缓存
     enabled: bool = True
+    owner_id: int | None = Field(default=None, index=True)  # 为空是平台渠道（管理员管理）；否则是某个用户自己的渠道
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)
 
@@ -45,6 +46,9 @@ class User(SQLModel, table=True):
     role: str = "student"  # admin 平台管理员 / teacher 老师 / student 学生
     class_id: int | None = Field(default=None, index=True)  # 学生所属班级；老师和管理员为空
     disabled: bool = False
+    quota_daily: int | None = None  # 每天可用的平台模型对话次数；为空则沿用班级 / 角色默认值
+    allow_platform: bool = True  # 能否使用平台提供的模型渠道
+    allow_own: bool = True  # 能否添加和使用自己的模型渠道
     created_at: datetime = Field(default_factory=now)
     last_login: datetime | None = None
 
@@ -58,7 +62,31 @@ class ClassRoom(SQLModel, table=True):
     teacher_id: int | None = Field(default=None, index=True)  # 负责老师；为空表示由管理员管理
     invite_code: str = Field(index=True, unique=True)
     registration_open: bool = True
+    quota_daily: int | None = None  # 本班学生的默认每日对话次数；为空则沿用角色默认值
     created_at: datetime = Field(default_factory=now)
+
+
+class InviteCode(SQLModel, table=True):
+    """一次性注册码：用一次就失效。kind=student 时注册进 class_id 指定的班级，kind=teacher 时注册为老师。"""
+
+    code: str = Field(primary_key=True)
+    kind: str  # student / teacher
+    class_id: int | None = Field(default=None, index=True)
+    note: str = ""
+    created_by: int | None = None
+    created_at: datetime = Field(default_factory=now)
+    used_by: int | None = None
+    used_at: datetime | None = None
+    revoked: bool = False
+
+
+class ModelUsage(SQLModel, table=True):
+    """每人每天使用平台模型的对话次数（一次发送算一次，工具调用的多轮请求不重复计算）。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    day: str = Field(index=True)  # YYYY-MM-DD
+    count: int = 0
 
 
 class AuthSession(SQLModel, table=True):
@@ -140,12 +168,18 @@ def engine():
 def _migrate(eng) -> None:
     """旧数据库补列（create_all 不会修改已有的表）。"""
     with eng.begin() as con:
-        for table, col in (("chatsession", "user_id"), ("backtestrecord", "user_id"), ("derivedstrategy", "user_id"),
-                           ("user", "class_id")):
+        for table, col, typ, index in (
+            ("chatsession", "user_id", "INTEGER", True), ("backtestrecord", "user_id", "INTEGER", True),
+            ("derivedstrategy", "user_id", "INTEGER", True), ("user", "class_id", "INTEGER", True),
+            ("llmprovider", "owner_id", "INTEGER", True), ("user", "quota_daily", "INTEGER", False),
+            ("user", "allow_platform", "BOOLEAN NOT NULL DEFAULT 1", False),
+            ("user", "allow_own", "BOOLEAN NOT NULL DEFAULT 1", False), ("classroom", "quota_daily", "INTEGER", False),
+        ):
             cols = {r[1] for r in con.exec_driver_sql(f'PRAGMA table_info("{table}")')}
             if cols and col not in cols:
-                con.exec_driver_sql(f'ALTER TABLE "{table}" ADD COLUMN {col} INTEGER')
-                con.exec_driver_sql(f'CREATE INDEX IF NOT EXISTS ix_{table}_{col} ON "{table}" ({col})')
+                con.exec_driver_sql(f'ALTER TABLE "{table}" ADD COLUMN {col} {typ}')
+                if index:
+                    con.exec_driver_sql(f'CREATE INDEX IF NOT EXISTS ix_{table}_{col} ON "{table}" ({col})')
         # 旧版本只有 admin / user 两种角色，user 即学生
         con.exec_driver_sql("""UPDATE "user" SET role = 'student' WHERE role = 'user'""")
         # 对话里只显示模型名，不显示接口（渠道）名称：旧消息的"接口 / 模型"改为只保留模型
@@ -172,5 +206,5 @@ def set_setting(key: str, value: Any) -> None:
         s.commit()
 
 
-__all__ = ["LLMProvider", "AppSetting", "ClassRoom", "ChatSession", "ChatMessage", "BacktestRecord", "DerivedStrategy",
+__all__ = ["LLMProvider", "AppSetting", "ClassRoom", "InviteCode", "ModelUsage", "ChatSession", "ChatMessage", "BacktestRecord", "DerivedStrategy",
            "engine", "session", "get_setting", "set_setting", "select", "Session", "now"]

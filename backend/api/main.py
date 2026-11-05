@@ -26,7 +26,7 @@ from quant.engine.config import BacktestConfig
 from quant.paths import ROOT_DIR
 from quant.strategies.base import ParamError
 
-from . import accounts, auth, instance, services
+from . import accounts, auth, instance, quota, services
 from .db import ChatMessage, ChatSession, User, engine
 from .export import export_zip
 from .serialize import clean
@@ -244,6 +244,7 @@ class ClassPatch(BaseModel):
     registration_open: bool | None = None
     invite_code: str | None = Field(None, max_length=40)
     teacher_id: int | None = None
+    quota_daily: int | None = None  # 显式传 null 表示沿用角色默认值
 
 
 class UserIn(BaseModel):
@@ -259,6 +260,19 @@ class UserPatch(BaseModel):
     role: Literal["admin", "teacher", "student"] | None = None
     class_id: int | None = None
     disabled: bool | None = None
+    quota_daily: int | None = None  # 显式传 null 表示沿用班级 / 角色默认值
+    allow_platform: bool | None = None
+    allow_own: bool | None = None
+
+
+class CodesIn(BaseModel):
+    count: int = Field(1, ge=1, le=200)
+    note: str = Field("", max_length=40)
+
+
+class QuotaDefaultsIn(BaseModel):
+    teacher: int | None = None
+    student: int | None = None
 
 
 class ResetIn(BaseModel):
@@ -389,6 +403,48 @@ def classes_import(cid: int, body: ImportIn):
     return accounts.import_students(cid, body.filename, body.content, body.dry_run)
 
 
+@app.get("/api/classes/{cid}/codes", dependencies=teacher)
+def class_codes(cid: int):
+    return accounts.list_codes("student", cid)
+
+
+@app.post("/api/classes/{cid}/codes", dependencies=teacher)
+def class_codes_create(cid: int, body: CodesIn):
+    return accounts.create_codes("student", cid, body.count, body.note)
+
+
+@app.get("/api/auth/teacher-codes", dependencies=admin_only)
+def teacher_codes():
+    return accounts.list_codes("teacher")
+
+
+@app.post("/api/auth/teacher-codes", dependencies=admin_only)
+def teacher_codes_create(body: CodesIn):
+    return accounts.create_codes("teacher", None, body.count, body.note)
+
+
+@app.delete("/api/codes/{code}", dependencies=teacher)
+def codes_revoke(code: str):
+    accounts.revoke_code(code)
+    return {"ok": True}
+
+
+@app.get("/api/quota/defaults", dependencies=admin_only)
+def quota_defaults():
+    return quota.defaults()
+
+
+@app.put("/api/quota/defaults", dependencies=admin_only)
+def quota_defaults_set(body: QuotaDefaultsIn):
+    return quota.set_defaults(body.teacher, body.student)
+
+
+@app.get("/api/quota/me")
+def quota_me():
+    u = auth.current_user.get()
+    return quota.status(u) if u else {"limit": None, "used": 0, "remaining": None, "source": "未开启登录"}
+
+
 @app.get("/api/users/import-template", dependencies=teacher)
 def users_template():
     name = quote("学生名单模板.csv")
@@ -497,13 +553,23 @@ def add_provider(body: ProviderIn):
     return llm.provider_public(llm.upsert_provider(body.model_dump()))
 
 
+def _platform_provider(pid: int) -> llm.LLMProvider:
+    """平台渠道接口只能操作平台渠道，不能改动用户自己的渠道。"""
+    p = llm.get_provider(pid)
+    if p.owner_id is not None:
+        raise HTTPException(404, "模型接口不存在")
+    return p
+
+
 @app.put("/api/llm/providers/{pid}", dependencies=admin)
 def edit_provider(pid: int, body: ProviderIn):
+    _platform_provider(pid)
     return llm.provider_public(llm.upsert_provider(body.model_dump(), pid))
 
 
 @app.delete("/api/llm/providers/{pid}", dependencies=admin)
 def remove_provider(pid: int):
+    _platform_provider(pid)
     llm.delete_provider(pid)
     return {"ok": True}
 
@@ -512,7 +578,7 @@ def remove_provider(pid: int):
 async def fetch_models(body: FetchModelsIn):
     key = body.api_key
     if not key and body.provider_id:
-        p = llm.get_provider(body.provider_id)
+        p = _platform_provider(body.provider_id)
         if not llm.same_endpoint(body.base_url, p.base_url):  # 已保存的 Key 只发给原来的地址
             raise HTTPException(400, llm.KEY_REQUIRED)
         key = p.api_key
@@ -522,7 +588,7 @@ async def fetch_models(body: FetchModelsIn):
 
 @app.post("/api/llm/providers/{pid}/refresh-models", dependencies=admin)
 async def refresh_models(pid: int):
-    p = llm.get_provider(pid)
+    p = _platform_provider(pid)
     base, models = await llm.fetch_models(p.base_url, p.api_key)
     p = llm.upsert_provider({"base_url": base, "models": models}, pid)
     return llm.provider_public(p)
@@ -530,13 +596,92 @@ async def refresh_models(pid: int):
 
 @app.post("/api/llm/test", dependencies=admin)
 async def test_model(body: TestIn):
-    return await llm.test_model(llm.get_provider(body.provider_id), body.model)
+    return await llm.test_model(_platform_provider(body.provider_id), body.model)
+
+
+# ---------------------------------------------------------------- 我的模型（老师、学生自己添加的渠道，只有自己能看到和管理）
+
+def _own_user() -> User:
+    u = auth.current_user.get()
+    if not u:
+        raise HTTPException(400, "开启账号登录后才能添加自己的模型渠道")
+    if u.role == "admin":
+        raise HTTPException(400, "管理员请在「模型接口」中管理平台渠道")
+    if not u.allow_own:
+        raise HTTPException(403, "管理员关闭了你使用自己模型渠道的权限")
+    return u
+
+
+def _own_provider(pid: int) -> llm.LLMProvider:
+    u = _own_user()
+    try:
+        p = llm.get_provider(pid)
+    except llm.LLMError as e:
+        raise HTTPException(404, "模型渠道不存在") from e
+    if p.owner_id != u.id:
+        raise HTTPException(404, "模型渠道不存在")
+    return p
+
+
+@app.get("/api/llm/my-providers")
+def my_providers():
+    u = auth.current_user.get()
+    if not u or u.role == "admin":
+        return []
+    return [llm.provider_public(p) for p in llm.list_providers(u.id)]
+
+
+@app.post("/api/llm/my-providers")
+def my_provider_add(body: ProviderIn):
+    u = _own_user()
+    if not body.name or not body.base_url or not body.api_key:
+        raise HTTPException(400, "名称、API 地址和 API Key 都不能为空")
+    if len(llm.list_providers(u.id)) >= 10:
+        raise HTTPException(400, "每人最多添加 10 个模型渠道")
+    return llm.provider_public(llm.upsert_provider(body.model_dump(), owner_id=u.id))
+
+
+@app.put("/api/llm/my-providers/{pid}")
+def my_provider_edit(pid: int, body: ProviderIn):
+    p = _own_provider(pid)
+    return llm.provider_public(llm.upsert_provider(body.model_dump(), pid, owner_id=p.owner_id))
+
+
+@app.delete("/api/llm/my-providers/{pid}")
+def my_provider_delete(pid: int):
+    _own_provider(pid)
+    llm.delete_provider(pid)
+    return {"ok": True}
+
+
+@app.post("/api/llm/my-providers/fetch")
+async def my_fetch_models(body: FetchModelsIn):
+    _own_user()
+    key = body.api_key
+    if not key and body.provider_id:
+        p = _own_provider(body.provider_id)
+        if not llm.same_endpoint(body.base_url, p.base_url):
+            raise HTTPException(400, llm.KEY_REQUIRED)
+        key = p.api_key
+    llm.check_public_url(llm.normalize_url(body.base_url))
+    base, models = await llm.fetch_models(body.base_url, key or "")
+    return {"base_url": base, "models": models}
+
+
+@app.post("/api/llm/my-test")
+async def my_test(body: TestIn):
+    p = _own_provider(body.provider_id)
+    llm.check_public_url(p.base_url)
+    return await llm.test_model(p, body.model)
 
 
 @app.get("/api/llm/choices")
 def llm_choices():
-    """对话页的模型选择：自动（主备顺序）或指定某个接口的某个模型。不含地址和密钥，所有登录用户可见。"""
-    return llm.choices()
+    """对话页的模型选择：Auto、平台渠道和自己的渠道，以及今天的额度。不含地址和密钥。"""
+    user = auth.current_user.get()
+    out = llm.choices(user)
+    out["quota"] = quota.status(user) if user else None
+    return out
 
 
 @app.get("/api/llm/routing")
@@ -563,8 +708,18 @@ class ChatIn(BaseModel):
 
 @app.post("/api/chat")
 async def chat(body: ChatIn):
+    user = auth.current_user.get()
+    if user is not None:
+        # 使用平台渠道时按每日额度计次；只用自己的渠道不计次。模型不可用等问题交给对话流程提示
+        try:
+            chain = llm.plan(body.model, user)
+        except llm.LLMError:
+            chain = []
+        if llm.uses_platform(chain):
+            quota.consume(user)
+
     async def gen():
-        async for ev in run_turn(body.session_id, body.message.strip(), body.model):
+        async for ev in run_turn(body.session_id, body.message.strip(), body.model, user):
             yield {"data": json.dumps(clean(ev), ensure_ascii=False, default=str)}
     return EventSourceResponse(gen(), ping=15)
 

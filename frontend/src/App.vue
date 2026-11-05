@@ -51,7 +51,7 @@ const overrides = computed<GlobalThemeOverrides>(() => {
           <main class="main" :class="{ full: route.meta.full }">
             <RouterView v-slot="{ Component }">
               <transition name="fade" mode="out-in">
-                <component :is="Component" :key="route.name === 'chat' || route.name === 'learn' ? String(route.name) : route.fullPath" />
+                <component :is="Component" :key="['chat', 'learn', 'settings'].includes(String(route.name)) ? String(route.name) : route.fullPath" />
               </transition>
             </RouterView>
           </main>

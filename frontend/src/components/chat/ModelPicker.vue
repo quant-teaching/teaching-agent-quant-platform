@@ -3,11 +3,17 @@
 // 选择记在本机浏览器里；列表变化导致原选择不存在时回到「自动」。
 import { Check, ChevronDown, Cpu, Search, Sparkles } from 'lucide-vue-next'
 import { NInput, NPopover } from 'naive-ui'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { ModelRef } from '@/api/chat'
 import { api } from '@/api/client'
 
-interface Choices { auto: { primary: string | null; fallbacks: number }; groups: { provider_id: number; provider: string; models: string[] }[] }
+interface Choices {
+  auto: { primary: string | null; fallbacks: number }
+  groups: { provider_id: number; provider: string; models: string[]; section: 'platform' | 'own' }[]
+  platform_allowed: boolean
+  own_allowed: boolean
+  quota: { limit: number | null; used: number; remaining: number | null } | null
+}
 
 const model = defineModel<ModelRef | null>({ default: null })
 const KEY = 'chat-model'
@@ -29,6 +35,11 @@ onMounted(async () => {
   model.value = ok ? saved : null
 })
 
+// 每次打开都刷新一次，让剩余额度保持最新
+watch(show, async (v) => {
+  if (!v) return
+  try { data.value = await api.get<Choices>('/api/llm/choices') } catch { /* 保留旧数据 */ }
+})
 function pick(v: ModelRef | null) {
   model.value = v
   try { localStorage.setItem(KEY, JSON.stringify(v)) } catch { /* 不可写时只在本次页面有效 */ }
@@ -48,6 +59,11 @@ const groups = computed(() => {
   return (data.value?.groups ?? [])
     .map((g) => ({ ...g, models: k ? g.models.filter((m) => m.toLowerCase().includes(k) || g.provider.toLowerCase().includes(k)) : g.models }))
     .filter((g) => g.models.length)
+})
+const quotaLine = computed(() => {
+  const q = data.value?.quota
+  if (!q || q.limit === null) return ''
+  return `今日平台模型剩余 ${q.remaining} / ${q.limit} 次`
 })
 const isSel = (pid: number, m: string) => model.value?.provider_id === pid && model.value?.model === m
 </script>
@@ -83,8 +99,9 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
       </div>
 
       <div class="list">
-        <div v-for="g in groups" :key="g.provider_id" class="grp">
-          <div class="grp-title"><span class="dot" />{{ g.provider }}<span class="cnt">{{ g.models.length }}</span></div>
+        <div v-for="(g, gi) in groups" :key="g.provider_id" class="grp">
+          <div v-if="gi === 0 || groups[gi - 1].section !== g.section" class="sec">{{ g.section === 'own' ? '我的渠道 · 不占额度' : '平台渠道' }}</div>
+          <div class="grp-title"><span class="dot" :class="g.section" />{{ g.provider }}<span class="cnt">{{ g.models.length }}</span></div>
           <button v-for="m in g.models" :key="m" class="opt" :class="{ sel: isSel(g.provider_id, m) }"
             @click="pick({ provider_id: g.provider_id, model: m })">
             <span class="m">{{ m }}</span>
@@ -93,7 +110,12 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
         </div>
         <div v-if="!groups.length" class="empty">{{ q ? '没有匹配的模型' : '还没有可选的模型，请管理员在「设置 → 模型接口」中拉取模型列表' }}</div>
       </div>
-      <div class="foot">指定模型调用失败时，会自动按主备顺序切换，并在对话中提示</div>
+      <div class="foot">
+        <span v-if="quotaLine" class="q" :class="{ empty: data?.quota?.remaining === 0 }">{{ quotaLine }}</span>
+        <span v-if="data && !data.platform_allowed" class="q empty">平台模型使用权限已关闭，只能使用自己的渠道</span>
+        <span>指定模型调用失败时会自动切换备用模型；</span>
+        <RouterLink v-if="data?.own_allowed" to="/settings?tab=mine" @click="show = false">添加自己的模型渠道 →</RouterLink>
+      </div>
     </div>
   </NPopover>
 </template>
@@ -137,6 +159,8 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
 .grp + .grp { margin-top: 6px; }
 .grp-title { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 12px; font-weight: 650; color: var(--text-2); background: var(--surface); }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand-grad); }
+.dot.own { background: var(--t-green); }
+.sec { padding: 8px 8px 2px; font-size: 11px; font-weight: 650; letter-spacing: 0.5px; color: var(--text-3); }
 .cnt { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--text-3); }
 .opt {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px 7px 20px; border: 0; border-radius: 8px; background: none;
@@ -146,6 +170,9 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
 .opt.sel { background: var(--primary-soft); color: var(--primary-ink); font-weight: 600; }
 .m { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12.5px; }
 .empty { padding: 18px 12px; text-align: center; font-size: 12.5px; color: var(--text-3); }
+.foot .q { display: block; font-weight: 600; color: var(--t-teal); margin-bottom: 2px; }
+.foot .q.empty { color: var(--up); }
+.foot a { color: var(--primary); }
 .foot { padding: 8px 12px; font-size: 11.5px; color: var(--text-3); border-top: 1px solid var(--border); background: var(--surface-2); }
 @media (max-width: 640px) { .sb { display: none; } .trigger { max-width: 150px; } }
 </style>

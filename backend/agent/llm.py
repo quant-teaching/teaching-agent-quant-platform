@@ -6,8 +6,11 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import time
+from urllib.parse import urlparse
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -65,13 +68,31 @@ def mask_key(key: str) -> str:
 
 def provider_public(p: LLMProvider) -> dict[str, Any]:
     return {"id": p.id, "name": p.name, "base_url": p.base_url, "api_key_masked": mask_key(p.api_key),
-            "has_key": bool(p.api_key), "models": p.models, "enabled": p.enabled,
+            "has_key": bool(p.api_key), "models": p.models, "enabled": p.enabled, "owner_id": p.owner_id,
             "updated_at": p.updated_at.isoformat()}
 
 
-def list_providers() -> list[LLMProvider]:
+def list_providers(owner_id: int | None = None) -> list[LLMProvider]:
+    """owner_id 为空返回平台渠道（管理员配置的）；否则返回该用户自己添加的渠道。"""
     with Session(engine()) as s:
-        return list(s.exec(select(LLMProvider).order_by(LLMProvider.id)))
+        q = select(LLMProvider).order_by(LLMProvider.id)
+        q = q.where(LLMProvider.owner_id == None) if owner_id is None else q.where(LLMProvider.owner_id == owner_id)  # noqa: E711
+        return list(s.exec(q))
+
+
+def check_public_url(url: str) -> None:
+    """用户自己添加的渠道只能指向公网地址：防止借平台服务器访问内网服务（SSRF）。"""
+    host = urlparse(url).hostname
+    if not host:
+        raise LLMError("API 地址格式不正确，应以 http:// 或 https:// 开头")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError as e:
+        raise LLMError(f"无法解析域名 {host}") from e
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+            raise LLMError("出于安全原因，自己添加的模型渠道只能使用公网地址，不能指向本机或内网")
 
 
 def get_provider(pid: int) -> LLMProvider:
@@ -82,9 +103,11 @@ def get_provider(pid: int) -> LLMProvider:
         return p
 
 
-def upsert_provider(data: dict[str, Any], pid: int | None = None) -> LLMProvider:
+def upsert_provider(data: dict[str, Any], pid: int | None = None, owner_id: int | None = None) -> LLMProvider:
+    if owner_id is not None and data.get("base_url"):
+        check_public_url(normalize_url(data["base_url"]))
     with Session(engine()) as s:
-        p = s.get(LLMProvider, pid) if pid else LLMProvider(name="", base_url="")
+        p = s.get(LLMProvider, pid) if pid else LLMProvider(name="", base_url="", owner_id=owner_id)
         if pid and not p:
             raise LLMError(f"模型接口 {pid} 不存在")
         # 防止把已保存的 Key 带到别人的服务器：改了地址就必须同时重新填写 Key
@@ -231,37 +254,71 @@ def candidates(routing: Routing | None = None) -> list[tuple[LLMProvider, str]]:
     return out
 
 
-def choices() -> dict[str, Any]:
-    """对话页可选的模型：自动（主备顺序），以及每个启用接口下的模型（主备里用到的排在前面）。"""
-    r = get_routing()
-    refs = ([r.primary] if r.primary else []) + r.fallbacks
-    chain = candidates(r)
-    groups = []
-    for p in list_providers():
+def _groups(providers: list[LLMProvider], refs: list[ModelRef], section: str) -> list[dict[str, Any]]:
+    out = []
+    for p in providers:
         if not p.enabled:
             continue
         models = list(dict.fromkeys([x.model for x in refs if x.provider_id == p.id] + p.models))
         if models:
-            groups.append({"provider_id": p.id, "provider": p.name, "models": models})
-    return {"auto": {"primary": chain[0][1] if chain else None,
-                     "fallbacks": max(len(chain) - 1, 0)},
-            "groups": groups}
+            out.append({"provider_id": p.id, "provider": p.name, "models": models, "section": section})
+    return out
 
 
-def _chain(routing: Routing, prefer: ModelRef | None) -> list[tuple[LLMProvider, str]]:
-    """调用顺序：指定了模型就先用它，失败后再按主备顺序兜底；指定的必须是管理员配置过的模型。"""
-    chain = candidates(routing)
+def platform_allowed(user: Any) -> bool:
+    return user is None or user.role == "admin" or bool(user.allow_platform)
+
+
+def own_allowed(user: Any) -> bool:
+    return user is not None and user.role != "admin" and bool(user.allow_own)
+
+
+def choices(user: Any = None) -> dict[str, Any]:
+    """对话页可选的模型：Auto，平台渠道（允许使用时），以及用户自己的渠道。不含地址和密钥。"""
+    r = get_routing()
+    refs = ([r.primary] if r.primary else []) + r.fallbacks
+    groups = _groups(list_providers(), refs, "platform") if platform_allowed(user) else []
+    if own_allowed(user):
+        groups += _groups(list_providers(user.id), [], "own")
+    chain = auto_chain(user, r)
+    return {"auto": {"primary": chain[0][1] if chain else None, "fallbacks": max(len(chain) - 1, 0)},
+            "groups": groups, "platform_allowed": platform_allowed(user), "own_allowed": own_allowed(user)}
+
+
+def auto_chain(user: Any, routing: Routing | None = None) -> list[tuple[LLMProvider, str]]:
+    """Auto：能用平台渠道时按平台主备顺序；否则依次使用自己渠道里的第一个模型。"""
+    if platform_allowed(user):
+        chain = candidates(routing)
+        if chain:
+            return chain
+    if own_allowed(user):
+        return [(p, p.models[0]) for p in list_providers(user.id) if p.enabled and p.models]
+    return []
+
+
+def plan(prefer: ModelRef | None, user: Any = None) -> list[tuple[LLMProvider, str]]:
+    """本轮的调用顺序。指定了模型就先用它：平台模型失败后按平台主备顺序兜底，自己的模型失败后只在自己的渠道里兜底。"""
+    routing = get_routing()
     if prefer is None:
-        return chain
-    allowed = {(g["provider_id"], m) for g in choices()["groups"] for m in g["models"]}
-    if (prefer.provider_id, prefer.model) not in allowed:
-        raise LLMError("所选模型不可用（可能已被管理员停用或删除），请在对话页重新选择，或选「自动」")
+        return auto_chain(user, routing)
+    groups = choices(user)["groups"]
+    hit = next((g for g in groups if g["provider_id"] == prefer.provider_id and prefer.model in g["models"]), None)
+    if hit is None:
+        raise LLMError("所选模型不可用（可能已被停用、删除或没有使用权限），请重新选择，或选「Auto」")
     prov = get_provider(prefer.provider_id)
-    return [(prov, prefer.model)] + [(p, m) for p, m in chain if (p.id, m) != (prov.id, prefer.model)]
+    if hit["section"] == "platform":
+        rest = candidates(routing)
+    else:
+        rest = [(p, p.models[0]) for p in list_providers(user.id) if p.enabled and p.models]
+    return [(prov, prefer.model)] + [(p, m) for p, m in rest if (p.id, m) != (prov.id, prefer.model)]
+
+
+def uses_platform(chain: list[tuple[LLMProvider, str]]) -> bool:
+    return any(p.owner_id is None for p, _ in chain)
 
 
 async def stream_chat(messages: list[dict], tools: list[dict] | None = None,
-                      prefer: ModelRef | None = None) -> AsyncIterator[dict]:
+                      prefer: ModelRef | None = None, user: Any = None) -> AsyncIterator[dict]:
     """依次尝试指定模型（若有）、主模型和备用模型。产出事件：
     {"type": "model", ...} 开始使用某个模型；{"type": "delta", "text"} 文本片段；
     {"type": "switch", "from", "to", "reason"} 切换备用模型（前端应丢弃本轮已显示的片段）；
@@ -270,9 +327,14 @@ async def stream_chat(messages: list[dict], tools: list[dict] | None = None,
     import asyncio
 
     routing = get_routing()
-    chain = _chain(routing, prefer)
+    chain = plan(prefer, user)
     if not chain:
+        if not platform_allowed(user):
+            raise LLMError("你的平台模型使用权限已被关闭，请联系老师；也可以在「设置 → 我的模型」添加自己的模型渠道")
         raise LLMError("还没有配置可用的模型，请先到「设置 → 模型接口」添加接口并选择主模型")
+    for prov, _ in chain:  # 自己的渠道每次调用前都重新检查地址，防止域名解析被改到内网
+        if prov.owner_id is not None:
+            check_public_url(prov.base_url)
     errors = []
     for i, (prov, model) in enumerate(chain):
         label = model  # 对话中只提示模型名，不暴露接口（渠道）名称

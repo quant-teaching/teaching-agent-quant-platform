@@ -16,9 +16,9 @@ from contextvars import ContextVar
 from typing import Any
 
 from fastapi import HTTPException, Request, Response
-from sqlmodel import Session, select
+from sqlmodel import Session, select, update
 
-from .db import AuthSession, ClassRoom, User, engine, get_setting, now, set_setting
+from .db import AuthSession, ClassRoom, InviteCode, User, engine, get_setting, now, set_setting
 from .settings import get_settings
 
 COOKIE = "qt_session"
@@ -56,6 +56,7 @@ def is_teacher() -> bool:
 def public(u: User, class_name: str | None = None) -> dict[str, Any]:
     return {"id": u.id, "username": u.username, "display_name": u.display_name or u.username, "role": u.role,
             "role_label": ROLE_LABELS.get(u.role, u.role), "class_id": u.class_id, "class_name": class_name,
+            "allow_platform": u.allow_platform, "allow_own": u.allow_own,
             "disabled": u.disabled, "created_at": u.created_at.isoformat(),
             "last_login": u.last_login.isoformat() if u.last_login else None}
 
@@ -206,11 +207,20 @@ def set_teacher_invite(code: str, enabled: bool) -> dict[str, Any]:
     return teacher_invite_config()
 
 
+def _unused_code(s: Session, code: str, kind: str) -> InviteCode | None:
+    row = s.get(InviteCode, code.strip().upper()) if code else None
+    if row and row.kind == kind and row.used_by is None and not row.revoked:
+        return row
+    return None
+
+
 def registration_status() -> dict[str, bool]:
-    """登录页显示哪些注册入口。"""
+    """登录页显示哪些注册入口：有开放注册的班级或未使用的一次性码时显示学生注册，老师同理。"""
     with Session(engine()) as s:
         student = s.exec(select(ClassRoom).where(ClassRoom.registration_open == True)).first() is not None  # noqa: E712
-    return {"student": student, "teacher": teacher_invite_config()["enabled"]}
+        unused = lambda kind: s.exec(select(InviteCode).where(  # noqa: E731
+            InviteCode.kind == kind, InviteCode.used_by == None, InviteCode.revoked == False)).first() is not None  # noqa: E711,E712
+        return {"student": student or unused("student"), "teacher": teacher_invite_config()["enabled"] or unused("teacher")}
 
 
 def _check_username(s: Session, username: str) -> str:
@@ -227,28 +237,43 @@ def register(username: str, password: str, invite_code: str, display_name: str =
     code = invite_code.strip()
     check_password_rule(password)
     with Session(engine()) as s:
+        once = None  # 用到的一次性码
         if as_role == "teacher":
             t = teacher_invite_config()
-            if not t["enabled"]:
-                raise HTTPException(403, "当前未开放老师注册，请联系平台管理员")
-            if not hmac.compare_digest(code.encode(), t["code"].encode()):
-                time.sleep(0.5)
-                raise HTTPException(400, "教师注册码不正确")
+            once = _unused_code(s, code, "teacher")
+            if once is None:
+                if not registration_status()["teacher"]:
+                    raise HTTPException(403, "当前未开放老师注册，请联系平台管理员")
+                if not t["enabled"] or not hmac.compare_digest(code.encode(), t["code"].encode()):
+                    time.sleep(0.5)
+                    raise HTTPException(400, "教师注册码不正确或已被使用")
             role, class_id = "teacher", None
         else:
             if not registration_status()["student"]:
                 raise HTTPException(403, "当前未开放注册，请联系老师获取账号")
             room = s.exec(select(ClassRoom).where(ClassRoom.invite_code == code)).first() if code else None
-            if not room:
-                time.sleep(0.5)
-                raise HTTPException(400, "班级邀请码不正确")
-            if not room.registration_open:
+            if room is None:
+                once = _unused_code(s, code, "student")
+                room = s.get(ClassRoom, once.class_id) if once else None
+                if room is None:
+                    time.sleep(0.5)
+                    raise HTTPException(400, "班级邀请码不正确或已被使用")
+            elif not room.registration_open:  # 关闭的是通用邀请码；一次性码不受这个开关影响
                 raise HTTPException(403, f"「{room.name}」已关闭注册，请联系老师")
             role, class_id = "student", room.id
         username = _check_username(s, username)
         u = User(username=username, display_name=display_name.strip()[:20], password_hash=hash_password(password),
                  role=role, class_id=class_id)
         s.add(u)
+        s.flush()
+        if once is not None:
+            # 条件更新：只有仍未使用时才占用，两个人同时用同一个码时只有一个能成功
+            res = s.exec(update(InviteCode).where(InviteCode.code == once.code, InviteCode.used_by == None,  # noqa: E711
+                                                  InviteCode.revoked == False)  # noqa: E712
+                         .values(used_by=u.id, used_at=now()))
+            if res.rowcount != 1:
+                s.rollback()
+                raise HTTPException(400, "这个一次性注册码刚刚已被使用")
         s.commit()
         s.refresh(u)
         return u
