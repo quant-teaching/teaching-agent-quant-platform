@@ -308,6 +308,17 @@ def test_one_time_codes_for_students_and_teachers(auth_on):
         assert register(new_client(), "作废码学生", invite=codes[1]["code"]).status_code == 400
         assert adm.delete(f"/api/codes/{codes[0]['code']}").status_code == 400  # 已使用的不能作废
 
+        # 批量：改备注、作废、删除；已使用的跳过
+        more = [c["code"] for c in adm.post(f"/api/classes/{room['id']}/codes", json={"count": 4}).json()]
+        r = adm.post("/api/codes/batch", json={"codes": more + [codes[0]["code"]], "action": "note", "note": "第二批"}).json()
+        assert r == {"done": 5, "skipped": 0}
+        r = adm.post("/api/codes/batch", json={"codes": more[:2] + [codes[0]["code"]], "action": "revoke"}).json()
+        assert r == {"done": 2, "skipped": 1}
+        r = adm.post("/api/codes/batch", json={"codes": more + [codes[0]["code"]], "action": "delete"}).json()
+        assert r == {"done": 4, "skipped": 1}
+        left = {c["code"]: c for c in adm.get(f"/api/classes/{room['id']}/codes").json()}
+        assert codes[0]["code"] in left and left[codes[0]["code"]]["note"] == "第二批" and not set(more) & set(left)
+
         t = adm.post("/api/auth/teacher-codes", json={"count": 1}).json()[0]["code"]
         assert new_client().get("/api/auth/me").json()["registration_modes"]["teacher"] is True
         assert register(new_client(), "一次性老师", invite=t, role="teacher").json()["user"]["role"] == "teacher"

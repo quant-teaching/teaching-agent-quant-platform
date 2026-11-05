@@ -568,3 +568,40 @@ def revoke_code(code: str) -> None:
         row.revoked = True
         s.add(row)
         s.commit()
+
+
+def batch_codes(codes: list[str], action: str, note: str = "") -> dict[str, Any]:
+    """批量操作一次性注册码：revoke 作废、delete 删除、note 修改备注。
+    已使用的码作为注册记录保留，不能作废或删除（会被跳过并计入 skipped）。"""
+    me = _me()
+    if action not in ("revoke", "delete", "note"):
+        raise HTTPException(400, "不支持的操作")
+    if not codes:
+        raise HTTPException(400, "请先选择注册码")
+    if len(codes) > 1000:
+        raise HTTPException(400, "一次最多操作 1000 个")
+    done = skipped = 0
+    with Session(engine()) as s:
+        for raw in dict.fromkeys(c.strip().upper() for c in codes):
+            row = s.get(InviteCode, raw)
+            if not row:
+                skipped += 1
+                continue
+            _check_code_scope(s, me, row.kind, row.class_id)
+            if action == "note":
+                row.note = note.strip()[:40]
+                s.add(row)
+            elif row.used_by:
+                skipped += 1
+                continue
+            elif action == "revoke":
+                if row.revoked:
+                    skipped += 1
+                    continue
+                row.revoked = True
+                s.add(row)
+            else:
+                s.delete(row)
+            done += 1
+        s.commit()
+    return {"done": done, "skipped": skipped}

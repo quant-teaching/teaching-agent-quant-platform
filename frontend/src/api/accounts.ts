@@ -82,6 +82,8 @@ export const accountsApi = {
   createClassCodes: (id: number, count: number, note = '') => api.post<OnceCode[]>(`/api/classes/${id}/codes`, { count, note }),
   teacherCodes: () => api.get<OnceCode[]>('/api/auth/teacher-codes'),
   createTeacherCodes: (count: number, note = '') => api.post<OnceCode[]>('/api/auth/teacher-codes', { count, note }),
+  batchCodes: (codes: string[], action: 'revoke' | 'delete' | 'note', note = '') =>
+    api.post<{ done: number; skipped: number }>('/api/codes/batch', { codes, action, note }),
   revokeCode: (code: string) => api.del(`/api/codes/${encodeURIComponent(code)}`),
   quotaDefaults: () => api.get<{ teacher: number | null; student: number | null }>('/api/quota/defaults'),
   setQuotaDefaults: (teacher: number | null, student: number | null) => api.put<{ teacher: number | null; student: number | null }>('/api/quota/defaults', { teacher, student }),

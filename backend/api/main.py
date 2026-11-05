@@ -423,6 +423,17 @@ def teacher_codes_create(body: CodesIn):
     return accounts.create_codes("teacher", None, body.count, body.note)
 
 
+class CodesBatchIn(BaseModel):
+    codes: list[str] = Field(max_length=1000)
+    action: Literal["revoke", "delete", "note"]
+    note: str = Field("", max_length=40)
+
+
+@app.post("/api/codes/batch", dependencies=teacher)
+def codes_batch(body: CodesBatchIn):
+    return accounts.batch_codes(body.codes, body.action, body.note)
+
+
 @app.delete("/api/codes/{code}", dependencies=teacher)
 def codes_revoke(code: str):
     accounts.revoke_code(code)
