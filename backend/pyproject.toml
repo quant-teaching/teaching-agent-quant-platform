@@ -9,6 +9,7 @@ dependencies = [
     "jieba>=0.42",
     "numpy>=2.0",
     "openai>=1.60",
+    "openpyxl>=3.1",
     "pandas>=2.2",
     "pyarrow>=18",
     "pydantic>=2.9",

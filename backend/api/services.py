@@ -87,8 +87,12 @@ class StrategyEntry:
 
 
 def _derived_all() -> list[DerivedStrategy]:
+    """当前用户可见的衍生策略：开启登录时只看得到自己创建的，不开启时全部可见。"""
     with Session(engine()) as s:
-        return list(s.exec(select(DerivedStrategy).order_by(DerivedStrategy.created_at)))
+        q = select(DerivedStrategy).order_by(DerivedStrategy.created_at)
+        if auth.enabled():
+            q = q.where(DerivedStrategy.user_id == auth.current_user_id())
+        return list(s.exec(q))
 
 
 def _entry_from_derived(d: DerivedStrategy) -> StrategyEntry:
@@ -146,12 +150,12 @@ def save_derived(base_ref: str, name: str, params: dict[str, Any], description: 
         raise ParamError("衍生策略需要一个名称")
     if name in {c.name for c in load_all().values()}:
         raise ParamError(f"「{name}」与内置策略重名，请换一个名称")
+    if name in {d.name for d in _derived_all()}:
+        raise ParamError(f"已经存在名为「{name}」的衍生策略")
     with Session(engine()) as s:
-        if s.exec(select(DerivedStrategy).where(DerivedStrategy.name == name)).first():
-            raise ParamError(f"已经存在名为「{name}」的衍生策略")
         d = DerivedStrategy(id="user_" + uuid.uuid4().hex[:8], base_id=base.cls.id, name=name,
                             description=description, params_json=json.dumps(merged, ensure_ascii=False),
-                            universe=universe or base.universe)
+                            universe=universe or base.universe, user_id=auth.current_user_id())
         s.add(d)
         s.commit()
         s.refresh(d)
@@ -161,7 +165,7 @@ def save_derived(base_ref: str, name: str, params: dict[str, Any], description: 
 def delete_derived(strategy_id: str) -> None:
     with Session(engine()) as s:
         d = s.get(DerivedStrategy, strategy_id)
-        if not d:
+        if not d or (auth.enabled() and d.user_id != auth.current_user_id() and not auth.is_admin()):
             raise NotFound("衍生策略不存在")
         s.delete(d)
         s.commit()
@@ -293,6 +297,13 @@ def holdings_on(result_id: str, date: str) -> list[dict[str, Any]]:
     return [{"date": str(r.date.date()), "symbol": r.symbol, "name": symbol_name(r.symbol), "qty": r.qty,
              "price": r.price, "value": r.value, "weight": r.weight, "contract": r.contract}
             for r in day.itertuples()]
+
+
+def record_owner(result_id: str) -> int | None:
+    """回测记录的创建者（没有记录或未开启登录时为 None）。"""
+    with Session(engine()) as s:
+        r = s.get(BacktestRecord, result_id)
+        return r.user_id if r else None
 
 
 def list_records(limit: int = 50, session_id: str | None = None) -> list[dict[str, Any]]:

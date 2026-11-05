@@ -26,8 +26,8 @@ from quant.engine.config import BacktestConfig
 from quant.paths import ROOT_DIR
 from quant.strategies.base import ParamError
 
-from . import auth, instance, services
-from .db import ChatMessage, ChatSession, engine
+from . import accounts, auth, instance, services
+from .db import ChatMessage, ChatSession, User, engine
 from .export import export_zip
 from .serialize import clean
 from .settings import get_settings
@@ -164,8 +164,17 @@ def backtests(limit: int = Query(50, le=500), session_id: str | None = None):
     return services.list_records(limit, session_id)
 
 
+def _check_view(result_id: str) -> None:
+    """报告只对本人、同班同学、班级老师和管理员可见（班级之间互相隔离）。"""
+    services.result_path(result_id)  # 校验 id
+    owner = services.record_owner(result_id)
+    if not accounts.can_view_owner(owner):
+        raise services.NotFound(f"回测结果 {result_id} 不存在")
+
+
 @app.get("/api/backtests/{result_id}")
 def backtest(result_id: str, request: Request):
+    _check_view(result_id)
     # 存档本身就是 gzip 压缩的 JSON：浏览器支持 gzip 时原样返回，省去解压、解析和重新压缩
     path = services.result_path(result_id)
     if "gzip" in request.headers.get("accept-encoding", "") and path.exists():
@@ -175,11 +184,13 @@ def backtest(result_id: str, request: Request):
 
 @app.get("/api/backtests/{result_id}/holdings")
 def backtest_holdings(result_id: str, date: str):
+    _check_view(result_id)
     return services.holdings_on(result_id, date)
 
 
 @app.get("/api/backtests/{result_id}/export")
 def backtest_export(result_id: str):
+    _check_view(result_id)
     name, data = export_zip(result_id)
     disposition = f"attachment; filename=\"backtest-{result_id}.zip\"; filename*=UTF-8''{quote(name)}"
     return Response(data, media_type="application/zip", headers={"Content-Disposition": disposition})
@@ -204,6 +215,7 @@ class RegisterIn(BaseModel):
     password: str = Field(min_length=1, max_length=128)
     invite_code: str = Field("", max_length=100)
     display_name: str = Field("", max_length=40)
+    role: Literal["student", "teacher"] = "student"  # 学生用班级邀请码，老师用教师注册码
 
 
 class PasswordIn(BaseModel):
@@ -211,8 +223,8 @@ class PasswordIn(BaseModel):
     new: str = Field(max_length=128)
 
 
-class UserPatch(BaseModel):
-    disabled: bool
+class ProfileIn(BaseModel):
+    display_name: str = Field(max_length=20)
 
 
 class InviteIn(BaseModel):
@@ -220,17 +232,66 @@ class InviteIn(BaseModel):
     enabled: bool = True
 
 
+class ClassIn(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
+    description: str = Field("", max_length=100)
+    teacher_id: int | None = None
+
+
+class ClassPatch(BaseModel):
+    name: str | None = Field(None, max_length=30)
+    description: str | None = Field(None, max_length=100)
+    registration_open: bool | None = None
+    invite_code: str | None = Field(None, max_length=40)
+    teacher_id: int | None = None
+
+
+class UserIn(BaseModel):
+    username: str = Field(min_length=1, max_length=40)
+    display_name: str = Field("", max_length=20)
+    password: str = Field("", max_length=128)  # 留空自动生成
+    role: Literal["admin", "teacher", "student"] = "student"
+    class_id: int | None = None
+
+
+class UserPatch(BaseModel):
+    display_name: str | None = Field(None, max_length=20)
+    role: Literal["admin", "teacher", "student"] | None = None
+    class_id: int | None = None
+    disabled: bool | None = None
+
+
+class ResetIn(BaseModel):
+    password: str = Field("", max_length=128)
+
+
+class ImportIn(BaseModel):
+    filename: str = Field(max_length=200)
+    content: str = Field(max_length=3_000_000)  # base64
+    dry_run: bool = True
+
+
 def require_role_admin() -> None:
     if not auth.is_admin():
-        raise HTTPException(403, "只有管理员可以管理用户")
+        raise HTTPException(403, "只有管理员可以进行这项操作")
+
+
+def require_teacher() -> None:
+    if not auth.is_teacher():
+        raise HTTPException(403, "只有老师或管理员可以管理班级和学生")
+
+
+teacher = [Depends(require_teacher)]
+admin_only = [Depends(require_role_admin)]
 
 
 @app.get("/api/auth/me")
 def auth_me(request: Request):
     st = get_settings()
     u = auth.user_from_request(request) if st.auth_enabled else None
-    return {"enabled": st.auth_enabled, "user": auth.public(u) if u else None,
-            "registration": bool(auth.active_invite_code()) if st.auth_enabled else False}
+    reg = auth.registration_status() if st.auth_enabled else {"student": False, "teacher": False}
+    return {"enabled": st.auth_enabled, "user": auth.public_with_class(u) if u else None,
+            "registration": reg["student"] or reg["teacher"], "registration_modes": reg}
 
 
 @app.post("/api/auth/login")
@@ -239,16 +300,16 @@ def auth_login(body: LoginIn, request: Request, response: Response):
         raise HTTPException(400, "平台未开启登录")
     u = auth.login(body.username, body.password)
     auth.start_session(response, request, u, body.remember)
-    return {"user": auth.public(u)}
+    return {"user": auth.public_with_class(u)}
 
 
 @app.post("/api/auth/register")
 def auth_register(body: RegisterIn, request: Request, response: Response):
     if not auth.enabled():
         raise HTTPException(400, "平台未开启登录")
-    u = auth.register(body.username, body.password, body.invite_code, body.display_name)
+    u = auth.register(body.username, body.password, body.invite_code, body.display_name, body.role)
     auth.start_session(response, request, u, remember=True)
-    return {"user": auth.public(u)}
+    return {"user": auth.public_with_class(u)}
 
 
 @app.post("/api/auth/logout")
@@ -266,30 +327,104 @@ def auth_password(body: PasswordIn):
     return {"ok": True}
 
 
-@app.get("/api/auth/invite", dependencies=[Depends(require_role_admin)])
-def get_invite():
-    return auth.invite_config()
+@app.put("/api/auth/profile")
+def auth_profile(body: ProfileIn):
+    u = auth.current_user.get()
+    if not u:
+        raise HTTPException(400, "平台未开启登录")
+    with Session(engine()) as s:
+        row = s.get(User, u.id)
+        row.display_name = body.display_name.strip()[:20]
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+        return {"user": auth.public_with_class(row)}
 
 
-@app.put("/api/auth/invite", dependencies=[Depends(require_role_admin)])
-def put_invite(body: InviteIn):
-    return auth.set_invite(body.code, body.enabled)
+@app.get("/api/auth/teacher-invite", dependencies=admin_only)
+def get_teacher_invite():
+    return auth.teacher_invite_config()
 
 
-@app.get("/api/auth/users", dependencies=[Depends(require_role_admin)])
-def auth_users():
-    return auth.list_users()
+@app.put("/api/auth/teacher-invite", dependencies=admin_only)
+def put_teacher_invite(body: InviteIn):
+    return auth.set_teacher_invite(body.code, body.enabled)
 
 
-@app.patch("/api/auth/users/{uid}", dependencies=[Depends(require_role_admin)])
-def auth_user_patch(uid: int, body: UserPatch):
-    return auth.set_disabled(uid, body.disabled)
+# ---------------------------------------------------------------- 班级与学生（老师、管理员）
+
+@app.get("/api/classes", dependencies=teacher)
+def classes_list():
+    return accounts.list_classes()
 
 
-@app.delete("/api/auth/users/{uid}", dependencies=[Depends(require_role_admin)])
-def auth_user_delete(uid: int):
-    auth.delete_user(uid)
+@app.post("/api/classes", dependencies=teacher)
+def classes_create(body: ClassIn):
+    return accounts.create_class(body.name, body.description, body.teacher_id)
+
+
+@app.patch("/api/classes/{cid}", dependencies=teacher)
+def classes_update(cid: int, body: ClassPatch):
+    return accounts.update_class(cid, body.model_dump(exclude_unset=True))
+
+
+@app.post("/api/classes/{cid}/regenerate-code", dependencies=teacher)
+def classes_regen(cid: int):
+    return accounts.regenerate_code(cid)
+
+
+@app.delete("/api/classes/{cid}", dependencies=teacher)
+def classes_delete(cid: int):
+    accounts.delete_class(cid)
     return {"ok": True}
+
+
+@app.get("/api/classes/{cid}/activity", dependencies=teacher)
+def classes_activity(cid: int, days: int = Query(30, ge=7, le=120)):
+    return accounts.class_activity(cid, days)
+
+
+@app.post("/api/classes/{cid}/import", dependencies=teacher)
+def classes_import(cid: int, body: ImportIn):
+    return accounts.import_students(cid, body.filename, body.content, body.dry_run)
+
+
+@app.get("/api/users/import-template", dependencies=teacher)
+def users_template():
+    name = quote("学生名单模板.csv")
+    return Response(accounts.import_template(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename=\"students.csv\"; filename*=UTF-8''{name}"})
+
+
+@app.get("/api/users", dependencies=teacher)
+def users_list(role: str | None = None, class_id: int | None = None, q: str | None = None):
+    return accounts.list_users(role, class_id, q)
+
+
+@app.post("/api/users", dependencies=teacher)
+def users_create(body: UserIn):
+    return accounts.create_user(body.username, body.display_name, body.password, body.role, body.class_id)
+
+
+@app.patch("/api/users/{uid}", dependencies=teacher)
+def users_update(uid: int, body: UserPatch):
+    return accounts.update_user(uid, body.model_dump(exclude_unset=True))
+
+
+@app.post("/api/users/{uid}/reset-password", dependencies=teacher)
+def users_reset(uid: int, body: ResetIn):
+    return accounts.reset_password(uid, body.password)
+
+
+@app.delete("/api/users/{uid}", dependencies=teacher)
+def users_delete(uid: int):
+    accounts.delete_user(uid)
+    return {"ok": True}
+
+
+@app.get("/api/users/{uid}/backtests", dependencies=teacher)
+def users_backtests(uid: int):
+    return accounts.user_backtests(uid)
 
 
 # ---------------------------------------------------------------- 模型设置

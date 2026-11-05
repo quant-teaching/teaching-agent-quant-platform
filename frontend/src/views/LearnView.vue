@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 新手教程：/learn 为目录页（按分类排列的章节卡片），/learn/:id 为章节页（左侧目录 + 格子纸正文 + 上下章）
-import { AArrowDown, AArrowUp, ArrowLeft, ArrowRight, BookOpenCheck, Check, ChevronDown, Clock, Compass, GraduationCap, ListTree, Maximize, Minimize, PanelLeftClose, PanelLeftOpen, Rocket, Sprout, Wrench } from 'lucide-vue-next'
+import { Presentation, AArrowDown, AArrowUp, ArrowLeft, ArrowRight, BookOpenCheck, Check, ChevronDown, Clock, Compass, GraduationCap, ListTree, Maximize, Minimize, PanelLeftClose, PanelLeftOpen, Rocket, Sprout, Wrench } from 'lucide-vue-next'
 import { NButton, NProgress } from 'naive-ui'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -10,7 +10,7 @@ import { CATEGORIES, CHAPTERS, TOTAL_MINUTES } from '@/tutorial'
 
 const route = useRoute()
 const router = useRouter()
-const CAT_ICONS: Record<string, any> = { start: Compass, basics: Sprout, practice: Wrench, advanced: Rocket }
+const CAT_ICONS: Record<string, any> = { start: Compass, basics: Sprout, practice: Wrench, advanced: Rocket, teacher: Presentation }
 
 // 学习进度只是本机的阅读记录，存在浏览器里；读不到时当作全部未读
 const KEY = 'learn-progress'

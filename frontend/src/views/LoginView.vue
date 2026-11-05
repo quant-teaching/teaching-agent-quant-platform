@@ -1,12 +1,11 @@
 <script setup lang="ts">
 // 登录 / 注册。左侧品牌介绍，右侧表单；窄屏只保留表单
 import {
-  Check, ChartLine, CircleAlert, GraduationCap, IdCard, Lock, MessageSquareText, Moon, Sun, Ticket, User,
-} from 'lucide-vue-next'
+  Check, ChartLine, CircleAlert, GraduationCap, IdCard, Lock, MessageSquareText, Moon, Sun, Ticket, Presentation, User } from 'lucide-vue-next'
 import { NButton, NCheckbox, NInput } from 'naive-ui'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuth } from '@/stores/auth'
+import { useAuth, type RegisterRole } from '@/stores/auth'
 import { useTheme } from '@/stores/theme'
 
 const auth = useAuth()
@@ -17,6 +16,9 @@ const router = useRouter()
 const mode = ref<'login' | 'register'>(route.query.mode === 'register' && auth.registration ? 'register' : 'login')
 const loading = ref(false)
 const error = ref('')
+// 注册身份：学生凭班级邀请码，老师凭管理员发放的教师注册码；只显示当前开放的入口
+const regRole = ref<RegisterRole>(auth.modes.student || !auth.modes.teacher ? 'student' : 'teacher')
+const bothModes = computed(() => auth.modes.student && auth.modes.teacher)
 const form = reactive({ username: '', password: '', confirm: '', invite: '', displayName: '', remember: true })
 
 watch(mode, () => {
@@ -38,7 +40,7 @@ function validate(): string {
   if (!usernameOk.value) return '用户名为 2~20 位中文、字母、数字或下划线'
   if (!rules.value.every((r) => r.ok)) return '密码需要 8 位以上，并同时包含字母和数字'
   if (form.password !== form.confirm) return '两次输入的密码不一致'
-  if (!form.invite.trim()) return '请输入老师提供的邀请码'
+  if (!form.invite.trim()) return regRole.value === 'teacher' ? '请输入管理员提供的教师注册码' : '请输入老师提供的班级邀请码'
   return ''
 }
 
@@ -48,7 +50,7 @@ async function submit() {
   loading.value = true
   try {
     if (mode.value === 'login') await auth.login(form.username.trim(), form.password, form.remember)
-    else await auth.register(form.username.trim(), form.password, form.invite.trim(), form.displayName.trim())
+    else await auth.register(form.username.trim(), form.password, form.invite.trim(), form.displayName.trim(), regRole.value)
     const target = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : '/'
     await router.replace(target)
   } catch (e: any) {
@@ -122,12 +124,21 @@ const features = [
         </div>
 
         <h2>{{ mode === 'login' ? '欢迎回来' : '创建账号' }}</h2>
-        <p class="sub">{{ mode === 'login' ? '登录后继续你的量化实验' : '使用老师提供的邀请码注册' }}</p>
+        <p class="sub">{{ mode === 'login' ? '登录后继续你的量化实验' : regRole === 'teacher' ? '使用管理员提供的教师注册码注册' : '使用老师提供的班级邀请码加入班级' }}</p>
 
         <div v-if="auth.registration" class="seg" role="tablist">
           <span class="seg-ind" :class="{ right: mode === 'register' }" />
           <button type="button" role="tab" :aria-selected="mode === 'login'" :class="{ on: mode === 'login' }" @click="mode = 'login'">登录</button>
           <button type="button" role="tab" :aria-selected="mode === 'register'" :class="{ on: mode === 'register' }" @click="mode = 'register'">注册</button>
+        </div>
+
+        <div v-if="mode === 'register' && bothModes" class="roles" role="radiogroup" aria-label="注册身份">
+          <button type="button" class="role-card" :class="{ on: regRole === 'student' }" @click="regRole = 'student'">
+            <GraduationCap :size="20" /><b>我是学生</b><em>凭班级邀请码加入班级</em>
+          </button>
+          <button type="button" class="role-card" :class="{ on: regRole === 'teacher' }" @click="regRole = 'teacher'">
+            <Presentation :size="20" /><b>我是老师</b><em>凭教师注册码，注册后创建班级</em>
+          </button>
         </div>
 
         <form class="form" novalidate @submit.prevent="submit">
@@ -139,7 +150,7 @@ const features = [
           </label>
 
           <label v-if="mode === 'register'" class="field">
-            <span class="label">显示名称 <i>选填，如真实姓名，方便老师辨认</i></span>
+            <span class="label">显示名称 <i>{{ regRole === 'teacher' ? '选填，如"王老师"，学生会看到' : '选填，如真实姓名，方便老师辨认' }}</i></span>
             <NInput v-model:value="form.displayName" size="large" :maxlength="20" placeholder="例如：张同学">
               <template #prefix><IdCard :size="17" class="pi" /></template>
             </NInput>
@@ -169,8 +180,8 @@ const features = [
               </NInput>
             </label>
             <label class="field">
-              <span class="label">邀请码</span>
-              <NInput v-model:value="form.invite" size="large" :maxlength="100" placeholder="向老师索取">
+              <span class="label">{{ regRole === 'teacher' ? '教师注册码' : '班级邀请码' }}</span>
+              <NInput v-model:value="form.invite" size="large" :maxlength="100" :placeholder="regRole === 'teacher' ? '向平台管理员索取' : '向老师索取，如 class-xxxxxx'">
                 <template #prefix><Ticket :size="17" class="pi" /></template>
               </NInput>
             </label>
@@ -191,7 +202,7 @@ const features = [
         </form>
 
         <p v-if="!auth.registration" class="foot-hint">还没有账号？请向老师索取账号或邀请码。</p>
-        <p v-else-if="mode === 'login'" class="foot-hint">还没有账号？<a href="#" @click.prevent="mode = 'register'">用邀请码注册</a></p>
+        <p v-else-if="mode === 'login'" class="foot-hint">还没有账号？<a href="#" @click.prevent="mode = 'register'">{{ auth.modes.student ? '用班级邀请码注册' : '注册老师账号' }}</a></p>
         <p v-else class="foot-hint">已有账号？<a href="#" @click.prevent="mode = 'login'">直接登录</a></p>
       </div>
     </section>
@@ -309,6 +320,16 @@ h2 { margin: 0; font-size: 28px; font-weight: 700; color: var(--text-1); letter-
 
 .form { margin-top: 24px; display: flex; flex-direction: column; gap: 16px; }
 .field { display: flex; flex-direction: column; gap: 7px; }
+.roles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.role-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px 14px; border-radius: 12px; cursor: pointer;
+  border: 1.5px solid var(--border); background: var(--surface); color: var(--text-2); font: inherit; text-align: left;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s, transform 0.2s var(--ease-out);
+}
+.role-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.role-card.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary-ink); box-shadow: 0 0 0 3px var(--primary-soft); }
+.role-card b { font-size: 14px; color: var(--text-1); }
+.role-card em { font-style: normal; font-size: 12px; color: var(--text-3); }
 .label { font-size: 13px; font-weight: 500; color: var(--text-2); }
 .label i { font-style: normal; font-weight: 400; color: var(--text-3); margin-left: 4px; font-size: 12px; }
 .pi { color: var(--text-3); }

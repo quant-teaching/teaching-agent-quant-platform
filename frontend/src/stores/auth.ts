@@ -7,7 +7,10 @@ export interface AuthUser {
   id: number
   username: string
   display_name: string
-  role: 'admin' | 'user'
+  role: 'admin' | 'teacher' | 'student'
+  role_label: string
+  class_id: number | null
+  class_name: string | null
   disabled: boolean
   created_at: string
   last_login: string | null
@@ -17,20 +20,27 @@ interface Me {
   enabled: boolean
   user: AuthUser | null
   registration: boolean
+  registration_modes: { student: boolean; teacher: boolean }
 }
+
+export type RegisterRole = 'student' | 'teacher'
 
 export const useAuth = defineStore('auth', () => {
   const loaded = ref(false)
   const enabled = ref(false)
   const registration = ref(false)
+  const modes = ref({ student: false, teacher: false })
   const user = ref<AuthUser | null>(null)
 
   const isAdmin = computed(() => !enabled.value || user.value?.role === 'admin')
+  /** 老师或管理员：可以管理班级和学生（未开启登录时没有账号体系） */
+  const isTeacher = computed(() => enabled.value && (user.value?.role === 'admin' || user.value?.role === 'teacher'))
 
   async function fetchMe() {
     const r = await api.get<Me>('/api/auth/me')
     enabled.value = r.enabled
     registration.value = r.registration
+    modes.value = r.registration_modes ?? { student: r.registration, teacher: false }
     user.value = r.user
     loaded.value = true
   }
@@ -39,12 +49,17 @@ export const useAuth = defineStore('auth', () => {
     user.value = (await api.post<{ user: AuthUser }>('/api/auth/login', { username, password, remember })).user
   }
 
-  async function register(username: string, password: string, inviteCode: string, displayName: string) {
+  async function register(username: string, password: string, inviteCode: string, displayName: string,
+    role: RegisterRole = 'student') {
     user.value = (
       await api.post<{ user: AuthUser }>('/api/auth/register', {
-        username, password, invite_code: inviteCode, display_name: displayName,
+        username, password, invite_code: inviteCode, display_name: displayName, role,
       })
     ).user
+  }
+
+  async function updateProfile(displayName: string) {
+    user.value = (await api.put<{ user: AuthUser }>('/api/auth/profile', { display_name: displayName })).user
   }
 
   async function logout() {
@@ -53,5 +68,5 @@ export const useAuth = defineStore('auth', () => {
     window.location.href = '/login'
   }
 
-  return { loaded, enabled, registration, user, isAdmin, fetchMe, login, register, logout }
+  return { loaded, enabled, registration, modes, user, isAdmin, isTeacher, fetchMe, login, register, updateProfile, logout }
 })

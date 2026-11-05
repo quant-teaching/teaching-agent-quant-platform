@@ -68,6 +68,12 @@ const RAW: { key: string; title: string; desc: string; tone: Tone; items: [strin
       ['24-faq', '常见问题', '账号、助手、回测中遇到问题先来这里找答案', 8],
     ],
   },
+  {
+    key: 'teacher', title: '老师专区', desc: '注册老师账号、创建班级、导入与管理学生', tone: 'rose',
+    items: [
+      ['teacher-guide', '老师指南：班级与学生管理', '班级邀请码、批量导入名单、学生管理与班级隔离', 10],
+    ],
+  },
 ]
 
 let n = 0

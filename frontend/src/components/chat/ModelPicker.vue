@@ -39,13 +39,10 @@ function pick(v: ModelRef | null) {
 const configured = computed(() => !!data.value && (data.value.auto.primary || data.value.groups.length))
 const label = computed(() => {
   if (!data.value) return failed.value ? '模型' : '加载中…'
-  if (!model.value) return data.value.auto.primary ? '自动' : '未配置模型'
+  if (!model.value) return data.value.auto.primary ? 'Auto' : '未配置模型'
   return model.value.model
 })
-const sub = computed(() => {
-  if (!model.value) return data.value?.auto.primary?.split(' / ').pop() ?? ''
-  return data.value?.groups.find((g) => g.provider_id === model.value!.provider_id)?.provider ?? ''
-})
+const sub = computed(() => '') // 输入框旁空间有限，只显示模型名
 const groups = computed(() => {
   const k = q.value.trim().toLowerCase()
   return (data.value?.groups ?? [])
@@ -56,8 +53,8 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
 </script>
 
 <template>
-  <RouterLink v-if="data && !configured" to="/settings" class="trigger warn">未配置模型，去设置</RouterLink>
-  <NPopover v-else v-model:show="show" trigger="click" placement="bottom-end" :show-arrow="false" raw style="padding: 0">
+  <RouterLink v-if="data && !configured" to="/settings?tab=model" class="trigger warn">未配置模型</RouterLink>
+  <NPopover v-else v-model:show="show" trigger="click" placement="top-end" :show-arrow="false" raw style="padding: 0">
     <template #trigger>
       <button class="trigger" :class="{ on: show }" title="选择对话使用的模型">
         <Sparkles v-if="!model" :size="14" class="ic auto" />
@@ -72,9 +69,9 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
       <button class="auto-card" :class="{ sel: !model }" @click="pick(null)">
         <span class="auto-ic"><Sparkles :size="16" /></span>
         <span class="auto-txt">
-          <b>自动 <em>推荐</em></b>
-          <span v-if="data?.auto.primary">先用主模型 {{ data.auto.primary }}<template v-if="data.auto.fallbacks">，失败时依次切换 {{ data.auto.fallbacks }} 个备用模型</template></span>
-          <span v-else>还没有设置主模型，请先到「模型设置」里选择</span>
+          <b>Auto <em>推荐</em></b>
+          <span v-if="data?.auto.primary">自动选择可用的模型<template v-if="data.auto.fallbacks">，调用失败时自动切换备用模型</template></span>
+          <span v-else>还没有设置主模型，请管理员到「设置 → 模型接口」里选择</span>
         </span>
         <Check v-if="!model" :size="16" class="ok" />
       </button>
@@ -94,7 +91,7 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
             <Check v-if="isSel(g.provider_id, m)" :size="14" class="ok" />
           </button>
         </div>
-        <div v-if="!groups.length" class="empty">{{ q ? '没有匹配的模型' : '还没有可选的模型，请管理员在「模型设置」中拉取模型列表' }}</div>
+        <div v-if="!groups.length" class="empty">{{ q ? '没有匹配的模型' : '还没有可选的模型，请管理员在「设置 → 模型接口」中拉取模型列表' }}</div>
       </div>
       <div class="foot">指定模型调用失败时，会自动按主备顺序切换，并在对话中提示</div>
     </div>
@@ -103,7 +100,7 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
 
 <style scoped>
 .trigger {
-  display: inline-flex; align-items: center; gap: 6px; max-width: 320px; height: 30px; padding: 0 10px 0 11px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 5px; max-width: 220px; height: 32px; padding: 0 9px 0 10px; border-radius: 999px;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-1); font: inherit; font-size: 12.5px; cursor: pointer;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
 }
@@ -111,6 +108,7 @@ const isSel = (pid: number, m: string) => model.value?.provider_id === pid && mo
 .trigger.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
 .ic { color: var(--primary); flex-shrink: 0; }
 .ic.auto { color: var(--t-amber); }
+.trigger .lb { font-size: 12.5px; }
 .lb { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb { color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
 .chev { color: var(--text-3); flex-shrink: 0; transition: transform 0.2s; }

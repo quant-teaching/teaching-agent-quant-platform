@@ -372,7 +372,7 @@ async def test_fallback_chain(monkeypatch):
     monkeypatch.setattr(llm_mod, "AsyncOpenAI", FakeOpenAI)
     events = [e async for e in llm_mod.stream_chat([{"role": "user", "content": "hi"}])]
     switches = [e for e in events if e["type"] == "switch"]
-    assert [s["to"].split(" / ")[1] for s in switches] == ["empty", "good"]
+    assert [s["to"] for s in switches] == ["empty", "good"]  # 只显示模型名，不含接口名
     assert "服务不可用" in switches[0]["reason"] and "空响应" in switches[1]["reason"]
     done = events[-1]
     assert done["type"] == "done" and done["completion"].content == "你好" and done["completion"].model == "good"
@@ -434,7 +434,7 @@ def test_chat_model_choice_puts_selected_model_first(client):
         llm.save_routing(llm.Routing(primary=llm.ModelRef(provider_id=a.id, model="m-main"),
                                      fallbacks=[llm.ModelRef(provider_id=b.id, model="m-b")]))
         data = client.get("/api/llm/choices").json()
-        assert data["auto"] == {"primary": "甲接口 / m-main", "fallbacks": 1}
+        assert data["auto"] == {"primary": "m-main", "fallbacks": 1}
         assert "sk-" not in json.dumps(data) and "example.com" not in json.dumps(data)
         groups = {g["provider"]: g["models"] for g in data["groups"]}
         assert groups["甲接口"][:2] == ["m-main", "m-other"] and groups["乙接口"] == ["m-b"]

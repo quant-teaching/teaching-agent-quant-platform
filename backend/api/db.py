@@ -42,10 +42,23 @@ class User(SQLModel, table=True):
     username: str = Field(index=True, unique=True)
     display_name: str = ""
     password_hash: str
-    role: str = "user"  # admin / user
+    role: str = "student"  # admin 平台管理员 / teacher 老师 / student 学生
+    class_id: int | None = Field(default=None, index=True)  # 学生所属班级；老师和管理员为空
     disabled: bool = False
     created_at: datetime = Field(default_factory=now)
     last_login: datetime | None = None
+
+
+class ClassRoom(SQLModel, table=True):
+    """班级：由老师创建，学生凭班级邀请码注册进入；不同班级的数据互相隔离。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    description: str = ""
+    teacher_id: int | None = Field(default=None, index=True)  # 负责老师；为空表示由管理员管理
+    invite_code: str = Field(index=True, unique=True)
+    registration_open: bool = True
+    created_at: datetime = Field(default_factory=now)
 
 
 class AuthSession(SQLModel, table=True):
@@ -99,6 +112,7 @@ class DerivedStrategy(SQLModel, table=True):
     description: str = ""
     params_json: str = Field(default="{}", sa_column=Column(Text))
     universe: str | None = None
+    user_id: int | None = Field(default=None, index=True)  # 创建者；开启登录后只对创建者可见
     created_at: datetime = Field(default_factory=now)
 
 
@@ -126,11 +140,17 @@ def engine():
 def _migrate(eng) -> None:
     """旧数据库补列（create_all 不会修改已有的表）。"""
     with eng.begin() as con:
-        for table in ("chatsession", "backtestrecord"):
-            cols = {r[1] for r in con.exec_driver_sql(f"PRAGMA table_info({table})")}
-            if cols and "user_id" not in cols:
-                con.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER")
-                con.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)")
+        for table, col in (("chatsession", "user_id"), ("backtestrecord", "user_id"), ("derivedstrategy", "user_id"),
+                           ("user", "class_id")):
+            cols = {r[1] for r in con.exec_driver_sql(f'PRAGMA table_info("{table}")')}
+            if cols and col not in cols:
+                con.exec_driver_sql(f'ALTER TABLE "{table}" ADD COLUMN {col} INTEGER')
+                con.exec_driver_sql(f'CREATE INDEX IF NOT EXISTS ix_{table}_{col} ON "{table}" ({col})')
+        # 旧版本只有 admin / user 两种角色，user 即学生
+        con.exec_driver_sql("""UPDATE "user" SET role = 'student' WHERE role = 'user'""")
+        # 对话里只显示模型名，不显示接口（渠道）名称：旧消息的"接口 / 模型"改为只保留模型
+        con.exec_driver_sql("""UPDATE chatmessage SET model = substr(model, instr(model, ' / ') + 3)
+                               WHERE model LIKE '% / %'""")
 
 
 def session() -> Iterator[Session]:
@@ -152,5 +172,5 @@ def set_setting(key: str, value: Any) -> None:
         s.commit()
 
 
-__all__ = ["LLMProvider", "AppSetting", "ChatSession", "ChatMessage", "BacktestRecord", "DerivedStrategy",
+__all__ = ["LLMProvider", "AppSetting", "ClassRoom", "ChatSession", "ChatMessage", "BacktestRecord", "DerivedStrategy",
            "engine", "session", "get_setting", "set_setting", "select", "Session", "now"]

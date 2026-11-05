@@ -265,7 +265,6 @@ onMounted(async () => {
       <header class="conv-head">
         <NTooltip><template #trigger><button class="ghost" @click="showSessions = !showSessions"><PanelLeft :size="17" /></button></template>{{ showSessions ? '收起会话列表' : '展开会话列表' }}</NTooltip>
         <div class="conv-title">{{ sessions.find((s) => s.id === sessionId)?.title ?? '新对话' }}</div>
-        <ModelPicker v-model="chatModel" />
       </header>
 
       <div ref="scroller" class="scroll">
@@ -294,6 +293,7 @@ onMounted(async () => {
             v-model:value="input" type="textarea" :autosize="{ minRows: 1, maxRows: 7 }" :bordered="false"
             placeholder="例如：把海龟策略的 ATR 周期改成 20，仓位上限 0.2，回测 2021 到 2024 年" @keydown="onKey"
           />
+          <span class="picker"><ModelPicker v-model="chatModel" /></span>
           <NButton v-if="busy" circle secondary type="error" @click="stop"><template #icon><Square :size="14" /></template></NButton>
           <NButton v-else circle type="primary" :disabled="!input.trim()" @click="send()"><template #icon><Send :size="15" /></template></NButton>
         </div>
@@ -388,6 +388,7 @@ onMounted(async () => {
 .composer-wrap { flex-shrink: 0; padding: 10px 24px 14px; }
 .composer { max-width: 860px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 16px; padding: 8px 8px 8px 14px; box-shadow: var(--shadow-md); transition: border-color 0.15s; }
 .composer { transition: border-color 0.2s, box-shadow 0.3s var(--ease-out); }
+.composer .picker { flex-shrink: 0; display: inline-flex; margin-bottom: 1px; }
 .composer:focus-within { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft), var(--shadow-md); }
 .composer :deep(.n-input) { background: transparent; }
 .composer :deep(textarea) { font-size: 14px; line-height: 1.6; }

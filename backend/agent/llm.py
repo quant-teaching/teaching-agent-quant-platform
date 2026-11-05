@@ -1,7 +1,7 @@
 """大模型接入：多接口管理、模型列表拉取、连接测试，以及主模型失败时自动切换备用模型。
 
 所有接口都按 OpenAI 兼容协议调用（/models、/chat/completions），可以接 OpenAI、DeepSeek、
-通义千问、各类中转站等。
+通义千问、硅基流动等。
 """
 
 from __future__ import annotations
@@ -243,7 +243,7 @@ def choices() -> dict[str, Any]:
         models = list(dict.fromkeys([x.model for x in refs if x.provider_id == p.id] + p.models))
         if models:
             groups.append({"provider_id": p.id, "provider": p.name, "models": models})
-    return {"auto": {"primary": f"{chain[0][0].name} / {chain[0][1]}" if chain else None,
+    return {"auto": {"primary": chain[0][1] if chain else None,
                      "fallbacks": max(len(chain) - 1, 0)},
             "groups": groups}
 
@@ -272,10 +272,10 @@ async def stream_chat(messages: list[dict], tools: list[dict] | None = None,
     routing = get_routing()
     chain = _chain(routing, prefer)
     if not chain:
-        raise LLMError("还没有配置可用的模型，请先到「模型设置」添加接口并选择主模型")
+        raise LLMError("还没有配置可用的模型，请先到「设置 → 模型接口」添加接口并选择主模型")
     errors = []
     for i, (prov, model) in enumerate(chain):
-        label = f"{prov.name} / {model}"
+        label = model  # 对话中只提示模型名，不暴露接口（渠道）名称
         if i > 0:
             yield {"type": "switch", "from": errors[-1][0], "to": label, "reason": errors[-1][1]}
         yield {"type": "model", "provider": prov.name, "model": model, "fallback": i > 0}

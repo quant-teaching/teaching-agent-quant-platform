@@ -242,7 +242,7 @@ async def run_turn(session_id: str | None, user_text: str,
                     completion = ev["completion"]
                     continue
                 if ev["type"] == "model":
-                    model_used = f"{ev['provider']} / {ev['model']}"
+                    model_used = ev['model']  # 只显示模型名，不显示接口（渠道）名称
                 if ev["type"] == "switch":
                     events.append({"kind": "model_switch", **{k: ev[k] for k in ("from", "to", "reason")}})
                 yield ev

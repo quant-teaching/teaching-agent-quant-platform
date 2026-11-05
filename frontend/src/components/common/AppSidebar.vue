@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { BookOpen, ChevronsUpDown, GraduationCap, FlaskConical, History, KeyRound, Layers, LogOut, MessageSquareText, Moon, Settings2, Sun } from 'lucide-vue-next'
+import { BookOpen, ChevronsUpDown, GraduationCap, FlaskConical, History, KeyRound, Layers, LogOut, MessageSquareText, Moon, Settings2, Sun, UserRound } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NTooltip, useMessage } from 'naive-ui'
 import { computed, h, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '@/api/client'
 import { useAuth } from '@/stores/auth'
 import { useTheme } from '@/stores/theme'
 
 const theme = useTheme()
 const route = useRoute()
+const router = useRouter()
 const auth = useAuth()
 const message = useMessage()
 
 const me = computed(() => (auth.enabled ? auth.user : null))
 const initial = computed(() => (me.value?.display_name || me.value?.username || '?').slice(0, 1).toUpperCase())
 const menu = [
+  { key: 'settings', label: '个人设置', icon: () => h(UserRound, { size: 15 }) },
   { key: 'password', label: '修改密码', icon: () => h(KeyRound, { size: 15 }) },
   { key: 'logout', label: '退出登录', icon: () => h(LogOut, { size: 15 }) },
 ]
@@ -22,6 +24,7 @@ const pwd = reactive({ show: false, old: '', new: '', confirm: '', saving: false
 
 function onMenu(key: string) {
   if (key === 'logout') auth.logout()
+  else if (key === 'settings') router.push({ path: '/settings', query: { tab: 'account' } })
   else Object.assign(pwd, { show: true, old: '', new: '', confirm: '' })
 }
 
@@ -82,10 +85,10 @@ const activeIndex = computed(() => items.findIndex(active))
 
     <NDropdown v-if="me" trigger="click" placement="top-start" :options="menu" @select="onMenu">
       <button class="user" :title="me.display_name">
-        <span class="avatar" :class="{ admin: me.role === 'admin' }">{{ initial }}</span>
+        <span class="avatar" :class="me.role">{{ initial }}</span>
         <span class="who">
           <b>{{ me.display_name }}</b>
-          <em>{{ me.role === 'admin' ? '管理员' : me.username }}</em>
+          <em>{{ me.role_label || me.username }}<template v-if="me.class_name"> · {{ me.class_name }}</template></em>
         </span>
         <ChevronsUpDown :size="15" class="chev" />
       </button>
@@ -94,7 +97,7 @@ const activeIndex = computed(() => items.findIndex(active))
     <div class="bottom">
       <RouterLink to="/settings" class="nav-item" :class="{ active: route.name === 'settings' }">
         <Settings2 :size="18" :stroke-width="1.8" />
-        <span>模型设置</span>
+        <span>设置</span>
       </RouterLink>
       <NTooltip placement="right">
         <template #trigger>
@@ -186,6 +189,7 @@ const activeIndex = computed(() => items.findIndex(active))
   font-size: 14px; font-weight: 650; color: var(--primary-ink); background: var(--primary-soft);
 }
 .avatar.admin { color: #fff; background: var(--brand-grad); }
+.avatar.teacher { color: var(--t-teal); background: var(--t-teal-soft); }
 .who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
 .who b { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .who em { font-style: normal; font-size: 11.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

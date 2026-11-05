@@ -18,14 +18,16 @@ from typing import Any
 from fastapi import HTTPException, Request, Response
 from sqlmodel import Session, select
 
-from .db import AuthSession, User, engine, get_setting, now, set_setting
+from .db import AuthSession, ClassRoom, User, engine, get_setting, now, set_setting
 from .settings import get_settings
 
 COOKIE = "qt_session"
 SESSION_DAYS, REMEMBER_DAYS = 1, 30
 MAX_FAILS, LOCK_SECONDS = 5, 300
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_一-龥]{2,20}$")
-INVITE_KEY = "auth.invite"
+INVITE_KEY = "auth.invite"  # 旧版本的全局邀请码，启动时迁移为「默认班级」的邀请码
+TEACHER_INVITE_KEY = "auth.teacher_invite"
+ROLE_LABELS = {"admin": "管理员", "teacher": "老师", "student": "学生"}
 INVITE_RE = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
 
 current_user: ContextVar[User | None] = ContextVar("current_user", default=None)
@@ -45,10 +47,26 @@ def is_admin() -> bool:
     return bool(u and u.role == "admin")
 
 
-def public(u: User) -> dict[str, Any]:
+def is_teacher() -> bool:
+    """老师或管理员：可以管理班级和学生。"""
+    u = current_user.get()
+    return bool(u and u.role in ("admin", "teacher"))
+
+
+def public(u: User, class_name: str | None = None) -> dict[str, Any]:
     return {"id": u.id, "username": u.username, "display_name": u.display_name or u.username, "role": u.role,
+            "role_label": ROLE_LABELS.get(u.role, u.role), "class_id": u.class_id, "class_name": class_name,
             "disabled": u.disabled, "created_at": u.created_at.isoformat(),
             "last_login": u.last_login.isoformat() if u.last_login else None}
+
+
+def public_with_class(u: User) -> dict[str, Any]:
+    name = None
+    if u.class_id:
+        with Session(engine()) as s:
+            c = s.get(ClassRoom, u.class_id)
+            name = c.name if c else None
+    return public(u, name)
 
 
 # ---------------------------------------------------------------- 密码
@@ -165,47 +183,71 @@ def login(username: str, password: str) -> User:
     return u
 
 
-def invite_config() -> dict[str, Any]:
-    """注册邀请码：管理员在页面上设置过就以数据库为准，否则沿用环境变量 INVITE_CODE。"""
-    saved = get_setting(INVITE_KEY)
+# ---------------------------------------------------------------- 注册：学生凭班级邀请码，老师凭教师注册码
+
+def teacher_invite_config() -> dict[str, Any]:
+    """教师注册码：管理员在页面上设置；未设置时沿用环境变量 TEACHER_INVITE_CODE（为空则不开放老师注册）。"""
+    saved = get_setting(TEACHER_INVITE_KEY)
     if saved is None:
-        code = get_settings().invite_code
+        code = get_settings().teacher_invite_code
         return {"code": code, "enabled": bool(code), "source": "env"}
     return {"code": saved.get("code", ""), "enabled": bool(saved.get("enabled")) and bool(saved.get("code")),
             "source": "db"}
 
 
-def active_invite_code() -> str:
-    """当前有效的邀请码；为空表示不开放注册。"""
-    c = invite_config()
-    return c["code"] if c["enabled"] else ""
-
-
-def set_invite(code: str, enabled: bool) -> dict[str, Any]:
+def set_teacher_invite(code: str, enabled: bool) -> dict[str, Any]:
     code = code.strip()
-    if enabled and not INVITE_RE.match(code):
-        raise HTTPException(400, "邀请码为 4~40 位字母、数字、下划线或短横线")
-    if code and not INVITE_RE.match(code):
-        raise HTTPException(400, "邀请码为 4~40 位字母、数字、下划线或短横线")
-    set_setting(INVITE_KEY, {"code": code, "enabled": enabled})
-    return invite_config()
+    if (enabled or code) and not INVITE_RE.match(code):
+        raise HTTPException(400, "注册码为 4~40 位字母、数字、下划线或短横线")
+    with Session(engine()) as s:
+        if code and s.exec(select(ClassRoom).where(ClassRoom.invite_code == code)).first():
+            raise HTTPException(400, "这个注册码和某个班级的邀请码相同，请换一个")
+    set_setting(TEACHER_INVITE_KEY, {"code": code, "enabled": enabled})
+    return teacher_invite_config()
 
 
-def register(username: str, password: str, invite_code: str, display_name: str = "") -> User:
-    code = active_invite_code()
-    if not code:
-        raise HTTPException(403, "当前未开放注册，请联系老师获取账号")
-    if not hmac.compare_digest(invite_code.strip().encode(), code.encode()):
-        time.sleep(0.5)
-        raise HTTPException(400, "邀请码不正确")
+def registration_status() -> dict[str, bool]:
+    """登录页显示哪些注册入口。"""
+    with Session(engine()) as s:
+        student = s.exec(select(ClassRoom).where(ClassRoom.registration_open == True)).first() is not None  # noqa: E712
+    return {"student": student, "teacher": teacher_invite_config()["enabled"]}
+
+
+def _check_username(s: Session, username: str) -> str:
     username = username.strip()
     if not USERNAME_RE.match(username):
         raise HTTPException(400, "用户名为 2~20 位中文、字母、数字或下划线")
+    if s.exec(select(User).where(User.username == username)).first():
+        raise HTTPException(400, "这个用户名已经被注册了")
+    return username
+
+
+def register(username: str, password: str, invite_code: str, display_name: str = "",
+             as_role: str = "student") -> User:
+    code = invite_code.strip()
     check_password_rule(password)
     with Session(engine()) as s:
-        if s.exec(select(User).where(User.username == username)).first():
-            raise HTTPException(400, "这个用户名已经被注册了")
-        u = User(username=username, display_name=display_name.strip()[:20], password_hash=hash_password(password))
+        if as_role == "teacher":
+            t = teacher_invite_config()
+            if not t["enabled"]:
+                raise HTTPException(403, "当前未开放老师注册，请联系平台管理员")
+            if not hmac.compare_digest(code.encode(), t["code"].encode()):
+                time.sleep(0.5)
+                raise HTTPException(400, "教师注册码不正确")
+            role, class_id = "teacher", None
+        else:
+            if not registration_status()["student"]:
+                raise HTTPException(403, "当前未开放注册，请联系老师获取账号")
+            room = s.exec(select(ClassRoom).where(ClassRoom.invite_code == code)).first() if code else None
+            if not room:
+                time.sleep(0.5)
+                raise HTTPException(400, "班级邀请码不正确")
+            if not room.registration_open:
+                raise HTTPException(403, f"「{room.name}」已关闭注册，请联系老师")
+            role, class_id = "student", room.id
+        username = _check_username(s, username)
+        u = User(username=username, display_name=display_name.strip()[:20], password_hash=hash_password(password),
+                 role=role, class_id=class_id)
         s.add(u)
         s.commit()
         s.refresh(u)
@@ -224,49 +266,47 @@ def change_password(user: User, old: str, new: str) -> None:
 
 
 def seed_admin() -> None:
-    """开启登录时，按环境变量创建或重置管理员账号（忘记密码时改环境变量重启即可）。"""
+    """开启登录时，按环境变量创建或重置管理员账号（忘记密码时改环境变量重启即可），并迁移旧数据。"""
     st = get_settings()
-    if not st.auth_enabled or not st.admin_password:
+    if not st.auth_enabled:
         return
+    admin_id = None
     with Session(engine()) as s:
-        u = s.exec(select(User).where(User.username == st.admin_username)).first() or User(
-            username=st.admin_username, display_name="老师", password_hash="")
-        if not verify_password(st.admin_password, u.password_hash):
-            u.password_hash = hash_password(st.admin_password)
-        u.role, u.disabled = "admin", False
-        s.add(u)
-        s.commit()
-
-
-def list_users() -> list[dict[str, Any]]:
-    with Session(engine()) as s:
-        return [public(u) for u in s.exec(select(User).order_by(User.created_at)).all()]
-
-
-def set_disabled(user_id: int, disabled: bool) -> dict[str, Any]:
-    me = current_user.get()
-    if me and me.id == user_id:
-        raise HTTPException(400, "不能停用自己的账号")
-    with Session(engine()) as s:
-        u = s.get(User, user_id)
-        if not u:
-            raise HTTPException(404, "用户不存在")
-        u.disabled = disabled
-        s.add(u)
-        s.commit()
-        s.refresh(u)
-    if disabled:
-        drop_sessions(user_id)
-    return public(u)
-
-
-def delete_user(user_id: int) -> None:
-    me = current_user.get()
-    if me and me.id == user_id:
-        raise HTTPException(400, "不能删除自己的账号")
-    with Session(engine()) as s:
-        u = s.get(User, user_id)
-        if u:
-            s.delete(u)
+        if st.admin_password:
+            u = s.exec(select(User).where(User.username == st.admin_username)).first() or User(
+                username=st.admin_username, display_name="管理员", password_hash="")
+            if not verify_password(st.admin_password, u.password_hash):
+                u.password_hash = hash_password(st.admin_password)
+            u.role, u.disabled, u.class_id = "admin", False, None
+            s.add(u)
             s.commit()
-    drop_sessions(user_id)
+            s.refresh(u)
+            admin_id = u.id
+    migrate_default_class(admin_id)
+
+
+def migrate_default_class(admin_id: int | None) -> None:
+    """旧版本只有一个全局邀请码、学生不分班。第一次升级时建一个「默认班级」：
+    邀请码沿用原来的全局邀请码（学生手里的码继续有效），没有班级的学生全部归入这个班。"""
+    with Session(engine()) as s:
+        orphans = s.exec(select(User).where(User.role == "student", User.class_id == None)).all()  # noqa: E711
+        has_class = s.exec(select(ClassRoom)).first() is not None
+        saved = get_setting(INVITE_KEY)
+        old_code = (saved or {}).get("code") if saved is not None else get_settings().invite_code
+        old_open = bool((saved or {}).get("enabled")) if saved is not None else bool(old_code)
+        if has_class and not orphans:
+            return
+        if not has_class and not old_code and not orphans:
+            return
+        room = s.exec(select(ClassRoom).where(ClassRoom.name == "默认班级")).first()
+        if room is None:
+            code = old_code if old_code and INVITE_RE.match(old_code) else "class-" + secrets.token_hex(3)
+            room = ClassRoom(name="默认班级", description="升级前注册的学生", teacher_id=admin_id, invite_code=code,
+                             registration_open=old_open)
+            s.add(room)
+            s.commit()
+            s.refresh(room)
+        for u in orphans:
+            u.class_id = room.id
+            s.add(u)
+        s.commit()

@@ -32,8 +32,10 @@ class Settings(BaseSettings):
     backtest_workers: int = max(1, min(2, (os.cpu_count() or 2) - 1))
     # 账号登录：多人共用的服务器上开启。关闭时（本地单人使用）不需要登录
     auth_enabled: bool = False
-    # 注册邀请码：为空时关闭注册，只有管理员账号能登录
+    # 旧版本的全局注册邀请码：首次升级时变成「默认班级」的邀请码；之后学生用各班级的邀请码注册
     invite_code: str = ""
+    # 教师注册码：老师凭它注册老师账号；为空时不开放老师注册（管理员也可在设置页面修改）
+    teacher_invite_code: str = ""
     # 管理员账号：开启登录时，每次启动按这里的用户名和密码创建或重置管理员；只有管理员能修改模型设置。
     # 不开启登录时，设置了 ADMIN_PASSWORD 则修改模型设置需要先在页面上输入它解锁
     admin_username: str = "admin"
