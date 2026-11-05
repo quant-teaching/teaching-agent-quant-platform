@@ -3,6 +3,7 @@ import { darkTheme, dateZhCN, NConfigProvider, NDialogProvider, NMessageProvider
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import AppSidebar from '@/components/common/AppSidebar.vue'
+import ImageViewer from '@/components/common/ImageViewer.vue'
 import { useTheme } from '@/stores/theme'
 
 const theme = useTheme()
@@ -43,6 +44,7 @@ const overrides = computed<GlobalThemeOverrides>(() => {
   <NConfigProvider :theme="theme.isDark ? darkTheme : null" :theme-overrides="overrides" :locale="zhCN" :date-locale="dateZhCN">
     <NMessageProvider placement="top">
       <NDialogProvider>
+        <ImageViewer />
         <RouterView v-if="route.meta.bare" />
         <div v-else class="shell">
           <AppSidebar />

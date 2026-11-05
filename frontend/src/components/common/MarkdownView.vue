@@ -10,10 +10,11 @@ import MarkdownIt from 'markdown-it'
 import cjkFriendly from 'markdown-it-cjk-friendly'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { openImage } from '@/stores/viewer'
 
 hljs.registerLanguage('python', python)
 
-const CALLOUTS: Record<string, string> = { TIP: '小贴士', NOTE: '说明', WARNING: '注意', KEY: '要点', TRY: '动手试试', IMPORTANT: '要点', CAUTION: '注意' }
+const CALLOUTS: Record<string, string> = { TIP: '小贴士', NOTE: '说明', WARNING: '注意', KEY: '要点', TRY: '动手试试', IMPORTANT: '要点', CAUTION: '注意', ANSWER: '点击查看答案' }
 // GitHub 风格的 IMPORTANT / CAUTION 映射到同类配色，策略文档在 GitHub 上也能正常显示
 const CALLOUT_CLASS: Record<string, string> = { IMPORTANT: 'key', CAUTION: 'warning' }
 
@@ -34,14 +35,15 @@ md.core.ruler.push('teaching_blocks', (state) => {
     // 提示框：> [!TIP] 标题（标题可省略）
     if (t.type === 'blockquote_open' && tokens[i + 2]?.type === 'inline') {
       const inline = tokens[i + 2]
-      const m = inline.content.match(/^\[!(TIP|NOTE|WARNING|KEY|TRY|IMPORTANT|CAUTION)\][ \t]*([^\n]*)\n?/)
+      const m = inline.content.match(/^\[!(TIP|NOTE|WARNING|KEY|TRY|IMPORTANT|CAUTION|ANSWER)\][ \t]*([^\n]*)\n?/)
       if (m) {
         t.attrJoin('class', `callout callout-${CALLOUT_CLASS[m[1]] ?? m[1].toLowerCase()}`)
         t.attrSet('data-label', m[2].trim() || CALLOUTS[m[1]])
+        if (m[1] === 'ANSWER') t.attrSet('data-answer', '1')
         inline.content = inline.content.slice(m[0].length)
         const first = inline.children?.[0]
         if (first?.type === 'text') {
-          first.content = first.content.replace(/^\[!(TIP|NOTE|WARNING|KEY|TRY|IMPORTANT|CAUTION)\][ \t]*[^\n]*/, '')
+          first.content = first.content.replace(/^\[!(TIP|NOTE|WARNING|KEY|TRY|IMPORTANT|CAUTION|ANSWER)\][ \t]*[^\n]*/, '')
           if (inline.children![1]?.type === 'softbreak') inline.children!.splice(1, 1)
           if (!first.content) inline.children!.shift()
         }
@@ -92,6 +94,17 @@ md.renderer.rules.image = (tokens, idx) => {
   const alt = md.utils.escapeHtml(t.content || '')
   return `<span class="md-fig"><img src="${src}" alt="${alt}" loading="lazy" />${alt ? `<span class="md-cap">${alt}</span>` : ''}</span>`
 }
+// > [!ANSWER] 渲染成可折叠的答案（自测题），点开才显示
+const quoteStack: boolean[] = []
+md.renderer.rules.blockquote_open = (tokens, idx, opts, _env, self) => {
+  const t = tokens[idx]
+  const ans = t.attrGet('data-answer') === '1'
+  quoteStack.push(ans)
+  if (!ans) return self.renderToken(tokens, idx, opts)
+  return `<details class="md-answer"><summary>${md.utils.escapeHtml(t.attrGet('data-label') || '点击查看答案')}</summary><div class="md-answer-body">`
+}
+md.renderer.rules.blockquote_close = (tokens, idx, opts, _env, self) =>
+  quoteStack.pop() ? '</div></details>' : self.renderToken(tokens, idx, opts)
 // 表格外包一层，窄屏横向滚动
 md.renderer.rules.table_open = () => '<div class="md-table"><table>'
 md.renderer.rules.table_close = () => '</table></div>'
@@ -105,6 +118,8 @@ const html = computed(() => {
 const router = useRouter()
 
 function onClick(e: MouseEvent) {
+  const pic = (e.target as HTMLElement).closest('.md-fig img') as HTMLImageElement | null
+  if (pic) return openImage(pic.getAttribute('src')!, pic.alt)
   const a = (e.target as HTMLElement).closest('a.md-inlink') as HTMLAnchorElement | null
   if (!a || e.ctrlKey || e.metaKey || e.shiftKey) return
   e.preventDefault()

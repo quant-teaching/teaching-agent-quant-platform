@@ -105,6 +105,9 @@ body {
 .lab .side-head { background: linear-gradient(90deg, var(--primary-soft), transparent 70%); }
 .lab .empty { border-style: dashed; background: linear-gradient(160deg, var(--surface), var(--surface-2)); }
 .lab .empty > svg { margin-bottom: 8px; }
+/* 新手教程沉浸阅读：隐藏站点侧边栏 */
+html.learn-immersive .sidebar { display: none; }
+
 /* 实验室空状态的加载形态：标题后三个跳动的点 + 不确定进度条 */
 .lab .empty.busy { border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
 .lab .empty.busy > svg { animation: float 2.4s ease-in-out infinite; }

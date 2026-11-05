@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 新手教程：/learn 为目录页（按分类排列的章节卡片），/learn/:id 为章节页（左侧目录 + 格子纸正文 + 上下章）
-import { ArrowLeft, ArrowRight, BookOpenCheck, Check, ChevronDown, Clock, Compass, GraduationCap, ListTree, Rocket, Sprout, Wrench } from 'lucide-vue-next'
+import { AArrowDown, AArrowUp, ArrowLeft, ArrowRight, BookOpenCheck, Check, ChevronDown, Clock, Compass, GraduationCap, ListTree, Maximize, Minimize, PanelLeftClose, PanelLeftOpen, Rocket, Sprout, Wrench } from 'lucide-vue-next'
 import { NButton, NProgress } from 'naive-ui'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import PageHero from '@/components/common/PageHero.vue'
@@ -36,6 +36,46 @@ const doneCount = computed(() => CHAPTERS.filter((c) => done.value.has(c.id)).le
 const percent = computed(() => Math.round((doneCount.value / CHAPTERS.length) * 100))
 const resume = computed(() => CHAPTERS.find((c) => !done.value.has(c.id)) ?? CHAPTERS[0])
 const tocOpen = ref(false)
+
+// ---------------- 沉浸式阅读：收起目录、字号、全屏（偏好记在本机浏览器）
+function pref(key: string, def: string) { try { return localStorage.getItem(key) ?? def } catch { return def } }
+function setPref(key: string, v: string) { try { localStorage.setItem(key, v) } catch { /* 不可写时只在本次有效 */ } }
+const tocCollapsed = ref(pref('learn-toc', 'open') === 'closed')
+const SIZES = [14, 15, 16.5, 18, 20]
+const sizeIdx = ref(Math.min(SIZES.length - 1, Math.max(0, Number(pref('learn-font', '1')) || 0)))
+const readSize = computed(() => `${SIZES[sizeIdx.value]}px`)
+const immersive = ref(false)
+function toggleToc() { tocCollapsed.value = !tocCollapsed.value; setPref('learn-toc', tocCollapsed.value ? 'closed' : 'open') }
+function font(d: number) { sizeIdx.value = Math.min(SIZES.length - 1, Math.max(0, sizeIdx.value + d)); setPref('learn-font', String(sizeIdx.value)) }
+function setImmersive(on: boolean) {
+  immersive.value = on
+  document.documentElement.classList.toggle('learn-immersive', on)
+}
+async function toggleImmersive() {
+  if (!immersive.value) {
+    setImmersive(true)
+    // 浏览器全屏；不支持或被拒绝时退化为页面内沉浸（隐藏侧边栏和目录）
+    try { await document.documentElement.requestFullscreen?.() } catch { /* 页面内沉浸 */ }
+  } else {
+    setImmersive(false)
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+  }
+}
+function onFsChange() { if (!document.fullscreenElement && immersive.value) setImmersive(false) }
+function onKey(e: KeyboardEvent) {
+  if (!chapter.value) return
+  const typing = (e.target as HTMLElement)?.closest?.('input, textarea, [contenteditable]')
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return
+  if (e.key === 'Escape' && immersive.value && !document.fullscreenElement) setImmersive(false)
+  else if (immersive.value && e.key === 'ArrowRight' && next.value) router.push(`/learn/${next.value.id}`)
+  else if (immersive.value && e.key === 'ArrowLeft' && prev.value) router.push(`/learn/${prev.value.id}`)
+}
+onMounted(() => { document.addEventListener('fullscreenchange', onFsChange); window.addEventListener('keydown', onKey) })
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', onFsChange)
+  window.removeEventListener('keydown', onKey)
+  if (immersive.value) { setImmersive(false); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}) }
+})
 const minRange = (() => { const m = CHAPTERS.map((c) => c.minutes); return `${Math.min(...m)}~${Math.max(...m)}` })()
 
 function finish() {
@@ -98,7 +138,7 @@ watch(() => route.params.id, async () => {
   </div>
 
   <!-- 章节页 -->
-  <div v-else key="reading" class="page learn reading">
+  <div v-else key="reading" class="page learn reading" :class="{ collapsed: tocCollapsed, immersive }">
     <aside class="toc" :class="{ open: tocOpen }">
       <button class="toc-toggle" @click="tocOpen = !tocOpen">
         <ListTree :size="16" /> 目录 · 第 {{ chapter.index }} / {{ CHAPTERS.length }} 章
@@ -121,8 +161,25 @@ watch(() => route.params.id, async () => {
       </div>
     </aside>
 
+    <div class="col">
+    <div class="read-bar">
+      <button class="rb" :title="tocCollapsed ? '展开目录' : '收起目录'" @click="toggleToc">
+        <PanelLeftOpen v-if="tocCollapsed" :size="16" /><PanelLeftClose v-else :size="16" />
+        <span>{{ tocCollapsed ? '展开目录' : '收起目录' }}</span>
+      </button>
+      <span class="rb-info">第 {{ chapter.index }} / {{ CHAPTERS.length }} 章 · {{ chapter.category.title }}</span>
+      <div class="rb-group">
+        <button class="rb icon" title="缩小字号" :disabled="sizeIdx === 0" @click="font(-1)"><AArrowDown :size="17" /></button>
+        <span class="rb-size">{{ SIZES[sizeIdx] }}</span>
+        <button class="rb icon" title="放大字号" :disabled="sizeIdx === SIZES.length - 1" @click="font(1)"><AArrowUp :size="17" /></button>
+      </div>
+      <button class="rb primary" :title="immersive ? '退出全屏（Esc）' : '全屏沉浸阅读'" @click="toggleImmersive">
+        <Minimize v-if="immersive" :size="16" /><Maximize v-else :size="16" />
+        <span>{{ immersive ? '退出全屏' : '全屏阅读' }}</span>
+      </button>
+    </div>
     <Transition name="page-turn" mode="out-in">
-    <article :key="chapter.id" class="paper-wrap">
+    <article :key="chapter.id" class="paper-wrap" :style="{ '--read-size': readSize }">
       <div class="notebook paper" :class="`tone-${chapter.category.tone}`">
         <header class="ch-head">
           <div class="ch-meta">
@@ -156,6 +213,20 @@ watch(() => route.params.id, async () => {
         </RouterLink>
       </nav>
     </article>
+    </Transition>
+    </div>
+    <!-- 全屏时的悬浮导航 -->
+    <Transition name="learn-swap">
+      <div v-if="immersive" class="float-nav">
+        <button :disabled="!prev" title="上一章（←）" @click="prev && router.push(`/learn/${prev.id}`)"><ArrowLeft :size="16" /></button>
+        <span>{{ chapter.index }} / {{ CHAPTERS.length }}</span>
+        <button :disabled="!next" title="下一章（→）" @click="next && router.push(`/learn/${next.id}`)"><ArrowRight :size="16" /></button>
+        <i />
+        <button title="缩小字号" :disabled="sizeIdx === 0" @click="font(-1)"><AArrowDown :size="16" /></button>
+        <button title="放大字号" :disabled="sizeIdx === SIZES.length - 1" @click="font(1)"><AArrowUp :size="16" /></button>
+        <i />
+        <button title="退出全屏（Esc）" @click="toggleImmersive"><Minimize :size="16" /></button>
+      </div>
     </Transition>
   </div>
   </Transition>
@@ -193,8 +264,48 @@ watch(() => route.params.id, async () => {
 .min { font-size: 12px; color: var(--text-3); white-space: nowrap; }
 
 /* ---------- 章节页 ---------- */
-.reading { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; align-items: start; max-width: 1240px; }
-.toc { position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; padding-right: 4px; }
+.reading { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; align-items: start; max-width: 1240px;
+  transition: grid-template-columns 0.35s var(--ease-out), gap 0.35s var(--ease-out), max-width 0.35s var(--ease-out); }
+.toc { position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; padding-right: 4px;
+  transition: opacity 0.25s ease, transform 0.35s var(--ease-out); }
+/* 收起目录：目录列宽度收为 0，正文居中加宽 */
+.reading.collapsed { grid-template-columns: 0 minmax(0, 1fr); gap: 0; max-width: 1060px; }
+.reading.collapsed .toc { opacity: 0; transform: translateX(-16px); pointer-events: none; overflow: hidden; }
+.col { min-width: 0; }
+.read-bar {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; margin: -6px 0 12px; padding: 8px 0;
+  background: linear-gradient(var(--bg) 70%, transparent);
+}
+.rb {
+  display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 9px; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.rb:hover:not(:disabled) { color: var(--text-1); border-color: var(--border-strong); background: var(--surface-2); }
+.rb:disabled { opacity: 0.4; cursor: default; }
+.rb.icon { width: 32px; padding: 0; justify-content: center; border: 0; background: none; }
+.rb.primary { color: var(--primary-ink); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); background: var(--primary-soft); }
+.rb-info { flex: 1; min-width: 0; font-size: 12.5px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-group { display: inline-flex; align-items: center; padding: 0 2px; border-radius: 9px; background: var(--surface); border: 1px solid var(--border); }
+.rb-size { min-width: 26px; text-align: center; font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+/* 全屏沉浸：隐藏目录，正文居中，底部悬浮导航 */
+.reading.immersive { grid-template-columns: 0 minmax(0, 1fr); gap: 0; max-width: 1000px; padding-top: 28px; padding-bottom: 90px; }
+.reading.immersive .toc { opacity: 0; pointer-events: none; overflow: hidden; }
+.reading.immersive .read-bar, .reading.immersive .pager { display: none; }
+.float-nav {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 2px;
+  padding: 6px 8px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(10px);
+  border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(16, 24, 40, 0.22); opacity: 0.55; transition: opacity 0.25s;
+}
+.float-nav:hover { opacity: 1; }
+.float-nav button {
+  width: 34px; height: 34px; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  color: var(--text-1); background: none; transition: background 0.15s;
+}
+.float-nav button:hover:not(:disabled) { background: var(--surface-3); }
+.float-nav button:disabled { opacity: 0.35; cursor: default; }
+.float-nav span { min-width: 54px; text-align: center; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.float-nav i { width: 1px; height: 18px; margin: 0 4px; background: var(--border-strong); }
 .toc-toggle { display: none; }
 .toc-home { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-3); margin-bottom: 12px; }
 .toc-home:hover { color: var(--primary); }
@@ -235,7 +346,7 @@ watch(() => route.params.id, async () => {
 .ch-head h1 { margin: 10px 0 4px; font-size: 27px; font-weight: 750; letter-spacing: 0.5px; color: var(--text-1); }
 .ch-head p { margin: 0; font-size: 14px; color: var(--text-2); }
 .ch-foot { margin-top: 30px; padding-top: 20px; border-top: 1px dashed var(--border-strong); display: flex; justify-content: center; }
-.paper :deep(.md) { font-size: 15px; }
+.paper :deep(.md) { font-size: var(--read-size, 15px); }
 
 .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
 .pg {
@@ -251,6 +362,9 @@ watch(() => route.params.id, async () => {
 .pg svg { flex-shrink: 0; color: var(--primary); }
 
 @media (max-width: 1000px) {
+  .reading.collapsed, .reading.immersive { grid-template-columns: 1fr; }
+  .read-bar .rb:first-child, .rb-info { display: none; }
+  .read-bar { justify-content: flex-end; }
   .cats { grid-template-columns: 1fr; }
   .reading { grid-template-columns: 1fr; }
   .toc { position: static; max-height: none; }
