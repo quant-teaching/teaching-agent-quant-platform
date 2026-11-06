@@ -137,7 +137,7 @@ TOOLS: list[dict] = [
             "description": {"type": "string"}}, "required": ["base", "name"]}}},
     {"type": "function", "function": {
         "name": "search_knowledge",
-        "description": "检索平台教学知识库（22 个策略的原理文档、量化指标解释、回测概念与陷阱），回答教学问题前使用",
+        "description": "检索平台教学知识库（全部策略的原理文档、量化指标解释、回测概念与陷阱），回答教学问题前使用",
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {
         "name": "get_market_info",

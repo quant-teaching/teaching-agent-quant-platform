@@ -4,13 +4,15 @@ flowchart TB
     LIB["算法库<br/>教学说明 · 参数 · 源码"]
     LAB["回测实验室 / 组合实验室"]
     REP["回测报告<br/>净值 · 回撤 · 年度/月度 · 买卖点 · 诊断"]
-    SET["模型设置<br/>多接口 · 主备顺序"]
+    LEARN["新手教程<br/>26 章笔记 · 沉浸阅读"]
+    SET["设置<br/>账号 · 班级 · 用户 · 注册码 · 模型"]
   end
 
   subgraph API["接口层 api/"]
     REST["REST 接口 · 登录鉴权"]
     SSE["/api/chat SSE 流式接口"]
     SVC["services.py 业务服务<br/>（REST 与智能体共用）"]
+    ACC["accounts.py · quota.py<br/>班级隔离 · 注册码 · 模型额度"]
   end
 
   subgraph AGENT["智能体中枢 agent/"]
@@ -22,17 +24,19 @@ flowchart TB
   end
 
   subgraph CORE["量化核心 quant/"]
-    STRAT["算法库 strategies/<br/>22 个策略 · 统一接口"]
+    STRAT["算法库 strategies/<br/>44 个策略 · 统一接口"]
     ENG["回测引擎 engine/<br/>撮合 · 成本 · 账本 · 指标"]
     PORT["组合模块 portfolio/<br/>加权合成 · 分散化分析"]
     DATA["数据层 data/<br/>标的目录 · 加载器 · 期货连续合约"]
   end
 
-  STORE[("data/<br/>market/ 行情快照<br/>app.db 会话与设置<br/>results/ 回测存档")]
+  STORE[("data/<br/>market/ 行情快照<br/>app.db 用户 · 班级 · 会话 · 设置<br/>results/ 回测存档")]
   LLMAPI["OpenAI 兼容大模型接口"]
 
   CHAT -- SSE --> SSE
-  LIB & LAB & REP & SET --> REST
+  LIB & LAB & REP & SET & LEARN --> REST
+  REST --> ACC
+  ACC --> STORE
   SSE --> LOOP
   REST --> SVC
   LOOP <--> LLM
@@ -50,8 +54,8 @@ flowchart TB
   classDef agent fill:#ede9fe,stroke:#7c3aed,color:#3b0764
   classDef core fill:#dcfce7,stroke:#16a34a,color:#14532d
   classDef data fill:#fef3c7,stroke:#d97706,color:#78350f
-  class CHAT,LIB,LAB,REP,SET fe
-  class REST,SSE,SVC api
+  class CHAT,LIB,LAB,REP,SET,LEARN fe
+  class REST,SSE,SVC,ACC api
   class LOOP,TOOLS,GUARD,LLM,RAG agent
   class STRAT,ENG,PORT,DATA core
   class STORE,LLMAPI data

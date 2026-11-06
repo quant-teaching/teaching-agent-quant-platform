@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, ArrowLeftRight, BookOpen, Boxes, ChartLine, Coins, Library, RefreshCw, Repeat, Rocket, Scale, Search, SlidersHorizontal, Sparkles, TrendingUp, Wheat, Zap } from 'lucide-vue-next'
+import { Activity, ArrowLeftRight, BarChart3, BookOpen, Boxes, ChartLine, Coins, Gauge, Layers, Library, RefreshCw, Repeat, Rocket, Scale, Search, ShieldCheck, SlidersHorizontal, Sparkles, Timer, TrendingUp, Wheat, Zap } from 'lucide-vue-next'
 import { NInput, NRadioButton, NRadioGroup, NSpin } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
 import CountUp from '@/components/common/CountUp.vue'
@@ -11,6 +11,7 @@ const catalog = useCatalog()
 const loading = ref(true)
 const cat = ref<'all' | 'stock' | 'futures' | 'derived'>('all')
 const q = ref('')
+const group = ref('all')
 
 onMounted(async () => {
   await catalog.load(true).catch(() => {})
@@ -23,6 +24,7 @@ const list = computed(() => {
     if (cat.value === 'derived' && !s.derived) return false
     if (cat.value === 'stock' && (s.category !== 'stock' || s.derived)) return false
     if (cat.value === 'futures' && (s.category !== 'futures' || s.derived)) return false
+    if (group.value !== 'all' && styleGroup(s.style) !== group.value) return false
     if (!k) return true
     return [s.name, s.style, s.summary, s.id, ...s.aliases].some((x) => x.toLowerCase().includes(k))
   })
@@ -37,10 +39,29 @@ const paramCount = computed(() => catalog.strategies.filter((s) => !s.derived).r
 
 // 按策略风格挑一个图标，卡片左上角和右下角水印使用
 const STYLE_ICONS: [string, any][] = [
+  ['低波动', ShieldCheck], ['波动率', Gauge], ['量价', BarChart3], ['期限结构', Layers], ['择时', Timer],
   ['套利', ArrowLeftRight], ['轮动', RefreshCw], ['多因子', Boxes], ['动量', Rocket], ['突破', Zap],
   ['均值回归', Repeat], ['反转', Repeat], ['震荡', Activity], ['配置', Scale], ['红利', Coins], ['价值', Coins], ['趋势', TrendingUp],
 ]
 const styleIcon = (style: string) => STYLE_ICONS.find(([k]) => style.includes(k))?.[1] ?? ChartLine
+
+// 按"赚什么钱"把风格归成几大类，便于在策略较多时快速筛选
+const GROUPS: { key: string; label: string; words: string[] }[] = [
+  { key: 'arb', label: '套利', words: ['套利'] },
+  { key: 'alloc', label: '配置与波动率', words: ['配置', '波动率', '期限结构'] },
+  { key: 'select', label: '选股与轮动', words: ['截面', '多因子', '轮动', '红利', '价值'] },
+  { key: 'revert', label: '均值回归与震荡', words: ['均值回归', '反转', '震荡', '超买超卖'] },
+  { key: 'breakout', label: '突破', words: ['突破'] },
+  { key: 'trend', label: '趋势与择时', words: ['趋势', '动量', '择时', '量价'] },
+]
+const styleGroup = (style: string) => GROUPS.find((g) => g.words.some((w) => style.includes(w)))?.key ?? 'trend'
+const groupCounts = computed(() => {
+  const base = catalog.strategies.filter((s) => cat.value === 'derived' ? s.derived
+    : !s.derived && (cat.value === 'all' || s.category === cat.value))
+  const out: Record<string, number> = { all: base.length }
+  for (const s of base) out[styleGroup(s.style)] = (out[styleGroup(s.style)] ?? 0) + 1
+  return out
+})
 </script>
 
 <template>
@@ -66,8 +87,15 @@ const styleIcon = (style: string) => STYLE_ICONS.find(([k]) => style.includes(k)
       </NInput>
     </div>
 
+    <div class="chips">
+      <button v-for="g in [{ key: 'all', label: '全部思路' }, ...GROUPS]" :key="g.key" class="chip" :class="{ on: group === g.key }"
+              :disabled="g.key !== 'all' && !groupCounts[g.key]" @click="group = g.key">
+        {{ g.label }}<span class="n">{{ groupCounts[g.key] ?? 0 }}</span>
+      </button>
+    </div>
+
     <NSpin :show="loading">
-      <div class="grid stagger" :key="cat + q">
+      <div class="grid stagger" :key="cat + q + group">
         <RouterLink v-for="s in list" :key="s.id" :to="`/library/${s.id}`" class="card item">
           <component :is="styleIcon(s.style)" class="watermark" :size="96" :stroke-width="1.2" />
           <div class="top">
@@ -91,6 +119,15 @@ const styleIcon = (style: string) => STYLE_ICONS.find(([k]) => style.includes(k)
 
 <style scoped>
 .toolbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 0 16px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-2); font-size: 13px; cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.2s var(--ease-out); }
+.chip:hover:not(:disabled) { border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); color: var(--primary-ink); transform: translateY(-1px); }
+.chip.on { background: var(--primary-soft); border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); color: var(--primary-ink); font-weight: 600; }
+.chip:disabled { opacity: 0.45; cursor: default; }
+.chip .n { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.chip.on .n { color: inherit; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
 .item { --tone: var(--t-blue); position: relative; overflow: hidden; padding: 16px 18px; display: flex; flex-direction: column; color: var(--text-1); }
 .item::before {

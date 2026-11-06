@@ -7,8 +7,8 @@ import pandas as pd
 import pytest
 
 from quant.backtest import run_backtest
-from quant.engine.engine import CORP_ACTIONS
 from quant.data.loader import DataError, load_bars, resolve_universe
+from quant.engine.engine import CORP_ACTIONS
 from quant.portfolio.portfolio import Component, PortfolioSpec, run_portfolio
 from quant.strategies.base import ParamError, load_all
 

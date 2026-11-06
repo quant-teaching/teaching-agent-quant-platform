@@ -71,8 +71,8 @@ def apply_stops(position: pd.DataFrame, close: pd.DataFrame, stop_loss: float,
 
 
 def rebalance_mask(index: pd.DatetimeIndex, freq: str) -> pd.Series:
-    """每个周期最后一个交易日为 True。freq：W 周、M 月、Q 季。信号在该日收盘生成、次日开盘调仓。"""
-    key = {"W": index.to_period("W"), "M": index.to_period("M"), "Q": index.to_period("Q")}[freq]
+    """每个周期最后一个交易日为 True。freq：W 周、M 月、Q 季、Y 年。信号在该日收盘生成、次日开盘调仓。"""
+    key = index.to_period(freq)
     s = pd.Series(key, index=index)
     return s.ne(s.shift(-1))
 

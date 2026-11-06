@@ -34,7 +34,7 @@ const RAW: { key: string; title: string; desc: string; tone: Tone; items: [strin
     key: 'basics', title: '金融与量化入门', desc: '股票市场常识、量化是什么、指标与回测原理', tone: 'violet',
     items: [
       ['04-market-basics', '股票市场的基础知识', 'A 股规则、交易成本、指数、分红送股', 10],
-      ['05-what-is-quant', '什么是量化交易', '规则化、可检验、有纪律，以及四类策略思路', 9],
+      ['05-what-is-quant', '什么是量化交易', '规则化、可检验、有纪律，以及五类策略思路', 9],
       ['06-kline', 'K 线与价格数据', '开高低收、涨跌幅、复权与 K 线图', 9],
       ['07-indicators', '均线与常用技术指标', '均线、EMA、布林带、RSI、MACD、KDJ、ATR 手算', 14],
       ['08-backtest', '回测：用历史检验想法', '引擎每天做的三件事，用数字走一遍', 11],

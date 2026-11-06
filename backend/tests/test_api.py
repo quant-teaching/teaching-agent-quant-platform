@@ -27,8 +27,8 @@ def test_health_market_strategies(client):
     m = client.get("/api/market").json()
     assert len(m["stocks"]) == 55 and len(m["futures"]) == 16 and len(m["industries"]) == 31
     s = client.get("/api/strategies").json()
-    assert len(s) == 22
-    assert s[0]["id"] == "dual_ma_stock" and s[12]["id"] == "turtle_futures"  # 按赛题清单排序
+    assert len(s) == 44
+    assert s[0]["id"] == "dual_ma_stock" and s[24]["id"] == "turtle_futures"  # 赛题清单在前，扩充策略按类别随后
     d = client.get("/api/strategies/海龟").json()  # 支持按名称或别名查找
     assert d["id"] == "turtle_futures" and "海龟" in d["doc"] and "class TurtleFutures" in d["source"]
 
@@ -156,7 +156,7 @@ def test_derived_strategy(client):
     p = client.post("/api/backtests", json={"strategy": "慢速海龟", "config": PERIOD}).json()
     assert p["params"]["entry_window"] == 55 and p["title"] == "慢速海龟"
     assert client.delete(f"/api/strategies/derived/{d['id']}").json() == {"ok": True}
-    assert len(client.get("/api/strategies").json()) == 22
+    assert len(client.get("/api/strategies").json()) == 44
 
 
 # ---------------------------------------------------------------- 模型设置

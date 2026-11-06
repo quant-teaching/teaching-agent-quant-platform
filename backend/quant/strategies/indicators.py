@@ -105,3 +105,125 @@ def cs_zscore(x: pd.DataFrame) -> pd.DataFrame:
     m = x.mean(axis=1)
     s = x.std(axis=1, ddof=0).replace(0, np.nan)
     return x.sub(m, axis=0).div(s, axis=0)
+
+
+def bias(close: pd.DataFrame, n: int) -> pd.DataFrame:
+    """乖离率 BIAS = 收盘价 / N 日均线 − 1，衡量价格偏离均线的程度"""
+    return close / sma(close, n) - 1
+
+
+def cci(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, n: int) -> pd.DataFrame:
+    """顺势指标 CCI = (典型价 − 典型价 N 日均值) / (0.015 × 平均绝对偏差)，典型价 = (高 + 低 + 收) / 3"""
+    tp = (high + low + close) / 3
+    ma = tp.rolling(n, min_periods=n).mean()
+    # 平均绝对偏差：窗口内每个典型价与当日均值之差的绝对值的平均（逐个滞后相加，避免逐窗口循环）
+    md = sum((tp.shift(j) - ma).abs() for j in range(n)) / n
+    return (tp - ma) / (0.015 * md.replace(0, np.nan))
+
+
+def williams_r(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, n: int) -> pd.DataFrame:
+    """威廉指标 %R = (N 日最高 − 收盘) / (N 日最高 − N 日最低) × (−100)，取值 −100 ~ 0"""
+    hh = high.rolling(n, min_periods=n).max()
+    ll = low.rolling(n, min_periods=n).min()
+    return (hh - close) / (hh - ll).replace(0, np.nan) * -100
+
+
+def obv(close: pd.DataFrame, volume: pd.DataFrame) -> pd.DataFrame:
+    """能量潮 OBV：收盘上涨日累加成交量、下跌日累减，平盘不变"""
+    sign = np.sign(close.diff()).fillna(0)
+    return (sign * volume.fillna(0)).cumsum().where(close.notna())
+
+
+def dmi(high: pd.DataFrame, low: pd.DataFrame, close: pd.DataFrame, n: int):
+    """趋向指标 DMI（威尔德）：返回 +DI、−DI、ADX。
+    +DM = 今高 − 昨高（大于 0 且大于 −DM 时有效），−DM = 昨低 − 今低（同理）；
+    ±DI = ±DM 的威尔德平滑 / ATR × 100；DX = |+DI − −DI| / (+DI + −DI) × 100；ADX = DX 的威尔德平滑"""
+    up = high.diff()
+    down = -low.diff()
+    plus_dm = up.where((up > down) & (up > 0), 0.0).where(up.notna())
+    minus_dm = down.where((down > up) & (down > 0), 0.0).where(down.notna())
+    tr = wilder(true_range(high, low, close), n)
+    pdi = 100 * wilder(plus_dm, n) / tr.replace(0, np.nan)
+    mdi = 100 * wilder(minus_dm, n) / tr.replace(0, np.nan)
+    dx = 100 * (pdi - mdi).abs() / (pdi + mdi).replace(0, np.nan)
+    return pdi, mdi, wilder(dx, n)
+
+
+def parabolic_sar(high: pd.DataFrame, low: pd.DataFrame, step: float, max_af: float):
+    """抛物线转向指标 SAR（威尔德）。返回 (SAR 值, 方向 1 多 / −1 空)。
+
+    SAR(t+1) = SAR(t) + AF × (EP − SAR(t))，EP 为本轮趋势的极值价，AF 从 step 起每创新极值加 step、最大 max_af；
+    多头时 SAR 不高于前两日最低价，价格跌破 SAR 即翻空（空头对称）。
+    """
+    H, L = high.to_numpy(float), low.to_numpy(float)
+    T, K = H.shape
+    sar = np.full((T, K), np.nan)
+    trend = np.zeros((T, K))
+    for k in range(K):
+        idx = np.nonzero(~np.isnan(H[:, k]) & ~np.isnan(L[:, k]))[0]
+        if len(idx) < 2:
+            continue
+        h, lo = H[idx, k], L[idx, k]
+        s = np.full(len(idx), np.nan)
+        d = np.zeros(len(idx))
+        up = h[1] >= h[0]
+        cur, ep, af = (lo[0], h[1], step) if up else (h[0], lo[1], step)
+        for i in range(1, len(idx)):
+            if i > 1:
+                cur = cur + af * (ep - cur)
+                if up:
+                    cur = min(cur, lo[i - 1], lo[i - 2])
+                else:
+                    cur = max(cur, h[i - 1], h[i - 2])
+            if up and lo[i] < cur:
+                up, cur, ep, af = False, ep, lo[i], step
+            elif not up and h[i] > cur:
+                up, cur, ep, af = True, ep, h[i], step
+            elif up and h[i] > ep:
+                ep, af = h[i], min(af + step, max_af)
+            elif not up and lo[i] < ep:
+                ep, af = lo[i], min(af + step, max_af)
+            s[i], d[i] = cur, 1 if up else -1
+        sar[idx, k], trend[idx, k] = s, d
+    return (pd.DataFrame(sar, index=high.index, columns=high.columns),
+            pd.DataFrame(trend, index=high.index, columns=high.columns))
+
+
+def kama(close: pd.DataFrame, n: int, fast: int, slow: int) -> pd.DataFrame:
+    """考夫曼自适应均线 KAMA：效率比 ER = |N 日净变化| / N 日逐日变化绝对值之和，
+    平滑系数 SC = (ER × (2/(fast+1) − 2/(slow+1)) + 2/(slow+1))²，KAMA(t) = KAMA(t−1) + SC × (收盘 − KAMA(t−1))"""
+    change = (close - close.shift(n)).abs()
+    path = close.diff().abs().rolling(n, min_periods=n).sum()
+    er = (change / path.replace(0, np.nan)).fillna(0).where(change.notna())
+    fsc, ssc = 2 / (fast + 1), 2 / (slow + 1)
+    sc = ((er * (fsc - ssc) + ssc) ** 2).to_numpy(float)
+    C = close.to_numpy(float)
+    out = np.full(C.shape, np.nan)
+    prev = np.full(C.shape[1], np.nan)
+    for t in range(C.shape[0]):
+        ok = ~np.isnan(sc[t]) & ~np.isnan(C[t])
+        start = ok & np.isnan(prev)
+        prev = np.where(start, C[t], prev)
+        upd = ok & ~start
+        prev = np.where(upd, prev + sc[t] * (C[t] - prev), prev)
+        out[t] = np.where(np.isnan(C[t]), np.nan, prev)
+    return pd.DataFrame(out, index=close.index, columns=close.columns)
+
+
+def rsrs(high: pd.DataFrame, low: pd.DataFrame, n: int):
+    """阻力支撑相对强度 RSRS：用最近 N 日最高价对最低价做最小二乘回归，返回 (斜率 β, 拟合优度 R²)。
+    β 大说明支撑强于阻力（低点抬升时高点涨得更多），常用于大盘择时"""
+    mh = high.rolling(n, min_periods=n).mean()
+    ml = low.rolling(n, min_periods=n).mean()
+    cov = (high * low).rolling(n, min_periods=n).mean() - mh * ml
+    vl = (low * low).rolling(n, min_periods=n).mean() - ml * ml
+    vh = (high * high).rolling(n, min_periods=n).mean() - mh * mh
+    beta = cov / vl.where(vl > 1e-12)
+    r2 = (cov * cov) / (vl * vh).where((vl > 1e-12) & (vh > 1e-12))
+    return beta, r2.clip(0, 1)
+
+
+def trix(close: pd.DataFrame, n: int) -> pd.DataFrame:
+    """三重指数平滑 TRIX：TR = EMA(EMA(EMA(收盘, N), N), N)，TRIX = (TR / 昨日 TR − 1) × 100"""
+    tr = ema(ema(ema(close, n), n), n)
+    return (tr / tr.shift() - 1) * 100

@@ -274,7 +274,7 @@ onMounted(async () => {
           <div v-if="empty" class="welcome">
             <div class="hero-icon"><span class="ring" /><img src="/logo.svg" width="44" height="44" alt="" /></div>
             <h1>你好，我是量化策略教学助手</h1>
-            <p>用自然语言调取 22 种经典量化算法、修改参数、执行历史回测，我会解读报告并解释每一条优化建议背后的原理。</p>
+            <p>用自然语言调取 44 种经典量化算法、修改参数、执行历史回测，我会解读报告并解释每一条优化建议背后的原理。</p>
             <RouterLink to="/learn" class="learn-chip"><GraduationCap :size="15" /> 第一次来？先看看零基础新手教程 <ArrowUpRight :size="14" /></RouterLink>
             <div class="sugs stagger">
               <button v-for="s in suggestions" :key="s.text" class="sug" :class="`tone-${s.tone}`" @click="send(s.text)">

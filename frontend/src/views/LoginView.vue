@@ -79,7 +79,7 @@ const features = [
 
       <div class="hero-body">
         <h1>用对话学量化</h1>
-        <p class="lead">22 种经典股票与期货策略，修改参数、回测历史行情，让智能助手讲清楚每一个指标背后的道理。</p>
+        <p class="lead">44 种经典股票与期货策略，修改参数、回测历史行情，让智能助手讲清楚每一个指标背后的道理。</p>
         <ul class="features">
           <li v-for="f in features" :key="f.title">
             <span class="f-icon"><component :is="f.icon" :size="18" :stroke-width="1.9" /></span>

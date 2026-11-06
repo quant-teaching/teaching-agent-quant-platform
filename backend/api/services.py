@@ -126,9 +126,13 @@ ORDER = [
     "dual_ma_stock", "momentum_stock", "reversal_stock", "multi_factor_stock", "industry_rotation",
     "bollinger_stock", "rsi_stock", "grid_stock", "macd_stock", "kdj_stock", "risk_parity_stock",
     "dividend_rotation",
+    "triple_ma_stock", "donchian_stock", "cci_stock", "rsrs_stock", "williams_stock", "bias_stock",
+    "obv_stock", "trix_stock", "high52_stock", "low_vol_stock", "vol_target_stock", "equal_weight_stock",
     "turtle_futures", "atr_channel_futures", "calendar_spread_futures", "trend_cta_futures",
     "mean_reversion_futures", "bollinger_futures", "volatility_breakout_futures", "ma_channel_futures",
     "grid_futures", "dual_ma_futures",
+    "macd_futures", "adx_futures", "sar_futures", "kama_futures", "rsi2_pullback_futures", "squeeze_futures",
+    "cs_momentum_futures", "reversal_futures", "carry_futures", "pair_spread_futures",
 ]
 
 
