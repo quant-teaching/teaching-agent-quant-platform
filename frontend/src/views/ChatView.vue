@@ -7,6 +7,7 @@ import { streamChat, type ChatEvent, type ModelRef } from '@/api/chat'
 import { api, getBacktest, type BacktestPayload } from '@/api/client'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
+import { createSmoothStream } from '@/components/chat/smoothStream'
 import { DISCLAIMER, type TextBlock, type ToolBlock, type UiMessage } from '@/components/chat/types'
 import BacktestReport from '@/components/report/BacktestReport.vue'
 import { useCatalog } from '@/stores/catalog'
@@ -109,16 +110,11 @@ async function send(text?: string) {
   let roundStart = 0
   abort = new AbortController()
 
-  const onEvent = (e: ChatEvent) => {
+  // 事件经过平滑队列后按原顺序生效，文字以平稳的速度逐字出现
+  const applyEvent = (e: ChatEvent) => {
     switch (e.type) {
-      case 'session':
-        if (sessionId.value !== e.session_id) {
-          sessionId.value = e.session_id
-          router.replace(`/chat/${e.session_id}`)
-        }
-        break
       case 'model':
-        msg.model = `${e.provider} / ${e.model}`
+        msg.model = e.model // 只显示模型名，不显示渠道
         roundStart = msg.blocks.length
         break
       case 'switch':
@@ -159,13 +155,29 @@ async function send(text?: string) {
     }
     scrollToEnd()
   }
+  const smooth = createSmoothStream(applyEvent)
+  abort.signal.addEventListener('abort', () => smooth.flush()) // 停止生成或切换会话时，已收到的文字立即显示完
+  const onEvent = (e: ChatEvent) => {
+    if (e.type === 'session') {
+      if (sessionId.value !== e.session_id) {
+        sessionId.value = e.session_id
+        router.replace(`/chat/${e.session_id}`)
+      }
+      return
+    }
+    if (e.type === 'switch') smooth.dropText() // 失败模型还没显示的文字直接丢弃
+    smooth.push(e)
+  }
 
   try {
     await streamChat(content, sessionId.value, onEvent, abort.signal, chatModel.value)
+    await smooth.drained()
   } catch (e: any) {
+    smooth.flush()
     if (e.name !== 'AbortError') msg.error = e.message || '连接中断'
     else msg.error = '已停止生成'
   } finally {
+    smooth.dispose()
     msg.streaming = false
     busy.value = false
     abort = null
