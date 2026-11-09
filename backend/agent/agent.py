@@ -124,37 +124,48 @@ def _numbers_in(text: str) -> list[tuple[str, float, int]]:
     return out
 
 
-def _collect_numbers(obj: Any, acc: set[float]) -> None:
+def _collect_numbers(obj: Any, acc: dict[float, str], path: str = "") -> None:
+    """收集数据来源中出现的所有数字，记录每个数字第一次出现的位置（来源 · 字段），供核验明细展示。"""
+    def add(v: float, where: str) -> None:
+        acc.setdefault(round(abs(v), 10), where)
+
     if isinstance(obj, dict):
-        for v in obj.values():
-            _collect_numbers(v, acc)
+        if "_src" in obj and "data" in obj:  # 带来源标签的工具结果
+            _collect_numbers(obj["data"], acc, obj["_src"])
+            return
+        for k, v in obj.items():
+            _collect_numbers(v, acc, f"{path} · {k}" if path else str(k))
     elif isinstance(obj, list):
         for v in obj:
-            _collect_numbers(v, acc)
+            _collect_numbers(v, acc, path)
     elif isinstance(obj, bool):
         return
     elif isinstance(obj, int | float):
-        acc.add(abs(float(obj)))
-        acc.add(abs(float(obj)) * 100)
+        add(float(obj), path)
+        add(float(obj) * 100, path + "（×100）")
     elif isinstance(obj, str):
-        for _, v, _ in _numbers_in(obj):
-            acc.add(abs(v))
-        for s in re.findall(r"\d+(?:\.\d+)?", obj):
-            acc.add(abs(float(s)))
+        snippet = obj if len(obj) <= 40 else ""
+        for _raw, v, _ in _numbers_in(obj):
+            add(v, f"{path}：{snippet}" if snippet else path)
+        for x in re.findall(r"\d+(?:\.\d+)?", obj):
+            add(float(x), f"{path}：{snippet}" if snippet else path)
 
 
 def fact_check(answer: str, sources: list[Any]) -> dict[str, Any]:
-    known: set[float] = set()
+    known: dict[float, str] = {}
     for s in sources:
         _collect_numbers(s, known)
-    unmatched = []
+    unmatched, matches = [], []
     checked = 0
     for raw, v, dec in _numbers_in(answer):
         checked += 1
         tol = 0.5 * 10 ** (-dec) + 1e-9
-        if not any(abs(abs(v) - k) <= tol for k in known):
+        hit = next((where for k, where in known.items() if abs(abs(v) - k) <= tol), None)
+        if hit is None:
             unmatched.append(raw)
-    return {"checked": checked, "unmatched": list(dict.fromkeys(unmatched))[:10],
+        elif len(matches) < 60:
+            matches.append({"value": raw, "source": hit or "数据来源"})
+    return {"checked": checked, "unmatched": list(dict.fromkeys(unmatched))[:10], "matches": matches,
             "status": "ok" if not unmatched else "warn"}
 
 
@@ -230,7 +241,8 @@ async def run_turn(session_id: str | None, user_text: str, model: ModelRef | Non
                          "不提供任何买卖建议或行情预测，然后引导用户学习相关策略或做历史回测。"})
     messages.append({"role": "user", "content": user_text})
     # 核验来源：本轮与历史中的工具结果、用户输入、系统信息
-    sources: list[Any] = [user_text, sys] + [m["content"] for m in messages if m["role"] in ("tool", "user")]
+    sources: list[Any] = [{"_src": "你的输入", "data": user_text}, {"_src": "平台信息（系统提示）", "data": sys}] + \
+        [{"_src": "历史对话", "data": m["content"]} for m in messages if m["role"] in ("tool", "user")]
     init = {"mode": ctl.mode, "control": ctl.dump(), "session_id": cs.id, "session_state": cs.state_json or "",
             "messages": messages, "turn_msgs": [], "events": [], "sources": sources, "pending": [],
             "backtests": 0, "rounds": 0, "ran_backtest": False, "final": "", "model_used": None}

@@ -188,6 +188,14 @@ def backtest_holdings(result_id: str, date: str):
     return services.holdings_on(result_id, date)
 
 
+@app.get("/api/backtests/{result_id}/audit")
+def backtest_audit(result_id: str):
+    """独立核验：不经过回测引擎，直接用原始行情和成交记录重算成交价、手续费与期末权益。"""
+    from api import audit
+    _check_view(result_id)
+    return audit.audit(result_id)
+
+
 @app.get("/api/backtests/{result_id}/export")
 def backtest_export(result_id: str):
     _check_view(result_id)
@@ -758,6 +766,27 @@ def chat_sessions():
             q = q.where(ChatSession.user_id == auth.current_user_id())
         rows = s.exec(q).all()
     return [{"id": r.id, "title": r.title, "updated_at": r.updated_at.isoformat()} for r in rows]
+
+
+class RobustnessIn(BaseModel):
+    strategy: str
+    params: dict[str, Any] = {}
+    universe: str | None = None
+    start: str
+    end: str
+    split: str | None = None
+    metric: Literal["sharpe", "annual_return", "max_drawdown", "calmar"] = "sharpe"
+    x_key: str
+    x_values: list[Any] = Field(min_length=2, max_length=8)
+    y_key: str | None = None
+    y_values: list[Any] | None = Field(None, max_length=8)
+
+
+@app.post("/api/research/robustness")
+def research_robustness(body: RobustnessIn):
+    """参数稳健性检验：参数网格 × 样本内 / 样本外。同步计算（几秒到十几秒），在线程池中执行。"""
+    return services.robustness(body.strategy, body.params, body.universe, body.start, body.end, body.x_key,
+                               body.x_values, body.y_key, body.y_values, body.split, body.metric)
 
 
 @app.get("/api/agent/meta")

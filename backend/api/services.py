@@ -254,6 +254,19 @@ def run_single(ref: str, params: dict[str, Any] | None, universe: str | list[str
     return payload
 
 
+def robustness(ref: str, params: dict[str, Any] | None, universe: str | None, start: str, end: str,
+               x_key: str, x_values: list[Any], y_key: str | None = None, y_values: list[Any] | None = None,
+               split: str | None = None, metric: str = "sharpe") -> dict[str, Any]:
+    """参数稳健性检验（参数网格 × 样本内 / 样本外），见 quant/robustness.py。"""
+    from quant import robustness as rb
+    entry = get_entry(ref)
+    base = entry.cls({**entry.base_params, **(params or {})}).params.model_dump()
+    out = rb.run(entry.cls.id, base, universe or entry.universe, start, end, x_key, x_values, y_key, y_values,
+                 split, metric)
+    out["strategy"] = {"id": entry.id, "name": entry.name}
+    return out
+
+
 def run_portfolio_service(components: list[dict[str, Any]], config: dict[str, Any] | BacktestConfig,
                           rebalance: str = "M", *, session_id: str | None = None,
                           source: str = "manual") -> dict[str, Any]:

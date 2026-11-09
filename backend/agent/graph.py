@@ -29,7 +29,7 @@ from .control import ALL_TOOLS, Control, backtest_cost
 from .tools import TOOL_LABELS, TOOLS, SessionState, Toolbox, ToolError
 
 MAX_ROUNDS = 8  # 每轮（研究模式下每次迭代）最多的模型调用次数
-BACKTEST_TOOLS = {"run_backtest", "run_portfolio_backtest", "compare_params"}
+BACKTEST_TOOLS = {"run_backtest", "run_portfolio_backtest", "compare_params", "robustness_test"}
 
 
 class TurnState(TypedDict, total=False):
@@ -152,7 +152,7 @@ async def run_calls(state: TurnState, calls: list[dict], text: str = "",
         used += cost
         ran = ran or (ok and name in BACKTEST_TOOLS)
         result = plain(result)
-        sources.append(result)
+        sources.append({"_src": f"工具结果「{label}」", "data": result})
         tool_msgs.append({"role": "tool", "tool_call_id": c["id"], "content": json.dumps(result, ensure_ascii=False)})
         ev = {"id": c["id"], "name": name, "label": label, "ok": ok,
               "error": None if ok else result.get("error"), "card": plain(card) if card else None}
@@ -396,7 +396,7 @@ async def reflect_node(state: TurnState, config) -> dict:
         "回测次数已用完" if out_of_budget else ""
     ref_ev = _phase("reflect", f"第 {i} 轮 · 反思", iteration=i, goal_met=met,
                     assessment=str(data.get("assessment") or ""), next=str(data.get("next") or ""), stop_reason=reason)
-    upd: dict[str, Any] = {"events": [*events, ref_ev], "sources": [plain(data)],
+    upd: dict[str, Any] = {"events": [*events, ref_ev], "sources": [{"_src": f"第 {i} 轮反思", "data": plain(data)}],
                            "turn_msgs": [{"role": "system", "content": f"【第 {i} 轮反思】{json.dumps(data, ensure_ascii=False)}"}]}
     if not stop:
         upd["events"].append(_phase("iteration", f"第 {i + 1} 轮 · 执行实验", iteration=i + 1))

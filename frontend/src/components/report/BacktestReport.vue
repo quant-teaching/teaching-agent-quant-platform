@@ -6,6 +6,7 @@ import { computed, h, ref, watch } from 'vue'
 import { exportUrl, type BacktestPayload, type BenchmarkStats } from '@/api/client'
 import { useCatalog } from '@/stores/catalog'
 import { money, num, paramValue, pct, signClass } from '@/utils/format'
+import AuditPanel from './AuditPanel.vue'
 import CorrelationHeatmap from './CorrelationHeatmap.vue'
 import DrawdownChart from './DrawdownChart.vue'
 import HoldingsPanel from './HoldingsPanel.vue'
@@ -253,6 +254,10 @@ function onPick(date: string) {
             <template v-if="diag.bottom_contributors?.length"><span class="muted" style="margin-left:16px">亏损最多：</span>{{ diag.bottom_contributors.map((c: any) => c.name).join('、') }}</template>
           </div>
         </section>
+      </NTabPane>
+
+      <NTabPane name="audit" tab="数据核验" display-directive="if">
+        <AuditPanel :data="d" />
       </NTabPane>
     </NTabs>
 

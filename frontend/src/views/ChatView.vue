@@ -159,7 +159,7 @@ function eventHandler(msg: UiMessage) {
         break
       }
       case 'fact_check':
-        msg.factCheck = { status: e.status, checked: e.checked, unmatched: e.unmatched }
+        msg.factCheck = { status: e.status, checked: e.checked, unmatched: e.unmatched, matches: e.matches }
         break
       case 'disclaimer':
         msg.disclaimer = true

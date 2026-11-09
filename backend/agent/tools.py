@@ -128,6 +128,23 @@ TOOLS: list[dict] = [
             "start": DATE_ARG, "end": DATE_ARG, "universe": UNIVERSE_ARG,
         }, "required": ["strategy", "param", "values", "start", "end"]}}},
     {"type": "function", "function": {
+        "name": "robustness_test",
+        "description": "参数稳健性检验（防过拟合）：在 1~2 个参数的取值网格上回测，按分割日切成样本内/样本外，"
+                       "检查样本内最优参数到样本外是否仍然好、参数优劣排序是否一致、哪组参数处在高原上。"
+                       "学生问到过拟合、参数是否可靠、最优参数怎么选时使用",
+        "parameters": {"type": "object", "properties": {
+            "strategy": STRATEGY_ARG,
+            "param_x": {"type": "string", "description": "第一个参数 key"},
+            "values_x": {"type": "array", "minItems": 2, "maxItems": 7, "items": {}},
+            "param_y": {"type": "string", "description": "第二个参数 key（可选，给了就做二维网格）"},
+            "values_y": {"type": "array", "maxItems": 6, "items": {}},
+            "start": DATE_ARG, "end": DATE_ARG,
+            "split": {"type": "string", "description": "样本内/样本外分割日 YYYY-MM-DD，不填取区间前 70%"},
+            "metric": {"type": "string", "enum": ["sharpe", "annual_return", "max_drawdown", "calmar"],
+                       "description": "评价指标，默认夏普比率"},
+            "universe": UNIVERSE_ARG,
+        }, "required": ["strategy", "param_x", "values_x", "start", "end"]}}},
+    {"type": "function", "function": {
         "name": "save_derived_strategy",
         "description": "把某个策略连同当前修改过的参数另存为一个新的衍生策略，之后可以按名字调取",
         "parameters": {"type": "object", "properties": {
@@ -148,7 +165,7 @@ TOOLS: list[dict] = [
 TOOL_LABELS = {
     "list_strategies": "查看算法库", "get_strategy": "调取策略", "update_params": "修改参数",
     "reset_params": "恢复默认参数", "run_backtest": "执行回测", "run_portfolio_backtest": "组合回测",
-    "get_backtest_detail": "查看回测细节", "compare_params": "参数对比实验", "save_derived_strategy": "保存衍生策略",
+    "get_backtest_detail": "查看回测细节", "compare_params": "参数对比实验", "robustness_test": "稳健性检验", "save_derived_strategy": "保存衍生策略",
     "search_knowledge": "检索知识库", "get_market_info": "查看数据范围",
 }
 
@@ -385,6 +402,37 @@ class Toolbox:
                "results": rows}
         return res, {"kind": "param_compare", "strategy": entry.name, "param": titles[param], "rows": rows,
                      "result_ids": ids}
+
+    def t_robustness_test(self, strategy: str, param_x: str, values_x: list[Any], start: str, end: str,
+                          param_y: str | None = None, values_y: list[Any] | None = None, split: str | None = None,
+                          metric: str = "sharpe", universe: str | None = None):
+        entry = self._entry(strategy)
+        cfg = self._config(start, end)
+        try:
+            out = services.robustness(entry.id, self._current_params(entry), universe, cfg["start"], cfg["end"],
+                                      param_x, values_x, param_y or None, values_y if param_y else None, split, metric)
+        except (ParamError, ValueError) as e:
+            raise ToolError(str(e)) from e
+        m = out["metric"]
+        f = (lambda v: pct(v)) if m in ("annual_return", "max_drawdown") else (lambda v: num(v))
+
+        def brief(c):
+            return {"参数": {out["x"]["title"]: c["x"], **({out["y"]["title"]: c["y"]} if out["y"] else {})},
+                    "样本内": f(c["train"][m]) if c.get("train") else None,
+                    "样本外": f(c["test"][m]) if c.get("test") else None,
+                    "样本外排名": c.get("test_rank")}
+        res = {"strategy": entry.name, "metric": out["metric_label"],
+               "sample_in": f"{cfg['start']} ~ {out['split']} 之前", "sample_out": f"{out['split']} ~ {cfg['end']}",
+               "valid_combinations": out["count"],
+               "best_in_sample": brief(out["best_train"]), "plateau": brief(out["robust"]),
+               "default_params": {"样本内": f(out["default"]["train"][m]) if out["default"].get("train") else None,
+                                  "样本外": f(out["default"]["test"][m]) if out["default"].get("test") else None},
+               "rank_correlation": num(out["spearman"]),
+               "grid": [{"参数": brief(c)["参数"], "样本内": f(c["train"][m]), "样本外": f(c["test"][m])}
+                        for c in out["cells"] if c["ok"]],
+               "conclusions": out["conclusions"],
+               "note": "界面已显示样本内/样本外热力图。讲解时说明过拟合的含义，并建议选参数高原而不是孤立最高点"}
+        return res, {"kind": "robustness", **out}
 
     def t_save_derived_strategy(self, base: str, name: str, params: dict[str, Any] | None = None,
                                 description: str = ""):

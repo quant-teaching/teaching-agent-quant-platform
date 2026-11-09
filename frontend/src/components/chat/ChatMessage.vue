@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, Check, ChevronDown, Loader2, Repeat, ShieldAlert, ShieldCheck, Sparkles, X } from 'lucide-vue-next'
-import { NTooltip } from 'naive-ui'
+import { NPopover } from 'naive-ui'
 import { computed, ref } from 'vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import ApprovalCard from './ApprovalCard.vue'
@@ -76,17 +76,25 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
       <div v-if="msg.disclaimer" class="disclaimer">⚠️ 本结果为教学回测模拟，历史回测不代表未来表现，不构成任何投资建议。</div>
 
       <div v-if="!msg.streaming && (msg.factCheck || msg.model)" class="foot">
-        <NTooltip v-if="msg.factCheck && msg.factCheck.checked > 0" placement="top-start">
+        <NPopover v-if="msg.factCheck && msg.factCheck.checked > 0" trigger="click" placement="top-start" :width="460" scrollable style="max-height: 360px">
           <template #trigger>
-            <span class="fc" :class="msg.factCheck.status">
+            <button class="fc" :class="msg.factCheck.status">
               <ShieldCheck v-if="msg.factCheck.status === 'ok'" :size="13" />
               <ShieldAlert v-else :size="13" />
               {{ msg.factCheck.status === 'ok' ? `数据核验通过 · ${msg.factCheck.checked} 个数字均来自回测结果` : `有 ${msg.factCheck.unmatched.length} 个数字未能核验` }}
-            </span>
+              <span class="fc-more">查看明细</span>
+            </button>
           </template>
-          <template v-if="msg.factCheck.status === 'ok'">回复中的百分数和小数都能在工具返回的回测数据、知识库或你的输入中找到，没有编造的数字。</template>
-          <template v-else>以下数字没有出现在工具结果中，请谨慎看待：{{ msg.factCheck.unmatched.join('、') }}</template>
-        </NTooltip>
+          <div class="fc-pop">
+            <p class="fc-intro">回复中的每个百分数和小数，都在本轮或之前的工具结果、知识库或你的输入中逐个查找出处：</p>
+            <div v-if="msg.factCheck.unmatched.length" class="fc-bad">未找到出处（请谨慎看待）：{{ msg.factCheck.unmatched.join('、') }}</div>
+            <table v-if="msg.factCheck.matches?.length" class="fc-tbl">
+              <thead><tr><th>数字</th><th>出处</th></tr></thead>
+              <tbody><tr v-for="(m, i) in msg.factCheck.matches" :key="i"><td>{{ m.value }}</td><td>{{ m.source }}</td></tr></tbody>
+            </table>
+            <p class="fc-intro">想核对回测本身是否算对，打开报告的「数据核验」标签页：指标复算、账本对账、逐笔成交核对。</p>
+          </div>
+        </NPopover>
         <span v-if="msg.model" class="model">{{ msg.model }}</span>
       </div>
     </div>
@@ -139,7 +147,15 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
 .error { display: flex; gap: 6px; align-items: center; color: var(--up); font-size: 13px; margin: 6px 0; }
 .disclaimer { font-size: 12.5px; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 8px; padding: 8px 12px; margin-top: 10px; }
 .foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
-.fc { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 2px 8px; border-radius: 6px; cursor: help; }
+.fc { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 2px 8px; border-radius: 6px; cursor: pointer; border: 0; font-family: inherit; }
+.fc-more { margin-left: 4px; text-decoration: underline; opacity: 0.75; }
+.fc-pop { font-size: 12.5px; }
+.fc-intro { margin: 0 0 8px; color: var(--text-2); line-height: 1.6; }
+.fc-bad { color: var(--up); margin-bottom: 8px; }
+.fc-tbl { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.fc-tbl th, .fc-tbl td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.fc-tbl td:first-child { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.fc-tbl th { color: var(--text-3); font-weight: 600; }
 .fc.ok { color: var(--primary-ink); background: var(--primary-soft); }
 .fc.warn { color: var(--warn); background: var(--warn-soft); }
 .model { font-size: 11.5px; color: var(--text-3); }

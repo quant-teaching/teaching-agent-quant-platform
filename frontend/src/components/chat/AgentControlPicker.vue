@@ -26,7 +26,7 @@ function pick(k: AgentMode) {
 // 工具按用途分组展示
 const GROUPS: { label: string; names: string[] }[] = [
   { label: '算法库与参数', names: ['list_strategies', 'get_strategy', 'update_params', 'reset_params', 'save_derived_strategy'] },
-  { label: '回测与实验', names: ['run_backtest', 'run_portfolio_backtest', 'compare_params', 'get_backtest_detail'] },
+  { label: '回测与实验', names: ['run_backtest', 'run_portfolio_backtest', 'compare_params', 'robustness_test', 'get_backtest_detail'] },
   { label: '资料查询', names: ['search_knowledge', 'get_market_info'] },
 ]
 const groups = computed(() => GROUPS.map((g) => ({ ...g, tools: g.names.map((n) => store.toolMeta(n)).filter(Boolean) as any[] })))

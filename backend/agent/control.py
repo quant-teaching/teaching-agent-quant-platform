@@ -130,6 +130,10 @@ def strategy_refs(name: str, args: dict[str, Any]) -> list[str]:
 
 
 def backtest_cost(name: str, args: dict[str, Any]) -> int:
+    if name == "robustness_test":
+        nx = len(args.get("values_x") or []) or 1
+        ny = len(args.get("values_y") or []) if args.get("param_y") else 1
+        return nx * max(ny, 1) + 1
     if name == "compare_params":
         values = args.get("values")
         return len(values) if isinstance(values, list) else 1

@@ -3,6 +3,7 @@
 import { ArrowRight, BookOpen, ChartLine, Layers } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
 import { getBacktest, type BacktestPayload } from '@/api/client'
+import RobustnessResult from '@/components/report/RobustnessResult.vue'
 import Sparkline from '@/components/report/Sparkline.vue'
 import { num, paramValue, pct, signClass } from '@/utils/format'
 
@@ -96,6 +97,12 @@ const hs = computed(() => payload.value?.series.benchmarks['000300']?.nav)
         </tbody>
       </table>
     </div>
+  </div>
+
+  <!-- 参数稳健性检验 -->
+  <div v-else-if="card.kind === 'robustness'" class="tcard">
+    <div class="tc-head"><b>{{ card.strategy?.name }}</b><span class="muted small">稳健性检验：{{ card.metric_label }}，样本内 / 样本外以 {{ card.split }} 为界</span></div>
+    <RobustnessResult :data="card" compact />
   </div>
 
   <!-- 知识库 -->

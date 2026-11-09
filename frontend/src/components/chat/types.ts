@@ -52,7 +52,7 @@ export interface UiMessage {
   status?: string // 正在制定计划、正在反思等临时状态
   model?: string | null
   switches: { from: string; to: string; reason: string }[]
-  factCheck?: { status: string; checked: number; unmatched: string[] } | null
+  factCheck?: { status: string; checked: number; unmatched: string[]; matches?: { value: string; source: string }[] } | null
   disclaimer?: boolean
   error?: string | null
 }
