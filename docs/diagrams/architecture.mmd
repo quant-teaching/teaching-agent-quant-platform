@@ -16,7 +16,8 @@ flowchart TB
   end
 
   subgraph AGENT["智能体中枢 agent/"]
-    LOOP["对话循环 agent.py<br/>系统提示 · 多轮工具调用"]
+    LOOP["对话编排 graph.py（LangGraph）<br/>自动 · 每步确认 · 先计划 · 自主研究"]
+    CTL["学生控制 control.py<br/>工具 · 策略范围 · 回测上限"]
     TOOLS["工具集 tools.py<br/>11 个工具"]
     GUARD["保障层<br/>合规识别 · 数字核验 · 强制免责"]
     LLM["模型路由 llm.py<br/>主模型 → 备用模型自动切换"]
@@ -44,6 +45,7 @@ flowchart TB
   LOOP --> TOOLS --> SVC
   TOOLS --> RAG
   LOOP --> GUARD
+  LOOP --> CTL
   SVC --> STRAT & ENG & PORT
   STRAT & ENG & PORT --> DATA
   DATA --> STORE
@@ -56,6 +58,6 @@ flowchart TB
   classDef data fill:#fef3c7,stroke:#d97706,color:#78350f
   class CHAT,LIB,LAB,REP,SET,LEARN fe
   class REST,SSE,SVC,ACC api
-  class LOOP,TOOLS,GUARD,LLM,RAG agent
+  class LOOP,TOOLS,GUARD,LLM,RAG,CTL agent
   class STRAT,ENG,PORT,DATA core
   class STORE,LLMAPI data

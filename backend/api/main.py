@@ -20,7 +20,7 @@ from sqlmodel import Session, select
 from sse_starlette.sse import EventSourceResponse
 
 from agent import knowledge, llm
-from agent.agent import run_turn
+from agent.agent import pending_info, resume_turn, run_turn
 from quant.data.loader import DataError
 from quant.engine.config import BacktestConfig
 from quant.paths import ROOT_DIR
@@ -715,6 +715,14 @@ class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     session_id: str | None = None
     model: llm.ModelRef | None = None  # 为空表示自动（按模型设置里的主备顺序）
+    # 学生的「智能体控制」设置：mode（auto/confirm/plan/research）、tools、strategies、max_backtests、max_iterations
+    control: dict[str, Any] | None = None
+
+
+class ResumeIn(BaseModel):
+    session_id: str
+    decision: dict[str, Any]  # 工具确认：{calls: {id: {action, args}}, feedback} 或 {action: reject_all}；计划：{action, steps}
+    model: llm.ModelRef | None = None
 
 
 @app.post("/api/chat")
@@ -730,7 +738,7 @@ async def chat(body: ChatIn):
             quota.consume(user)
 
     async def gen():
-        async for ev in run_turn(body.session_id, body.message.strip(), body.model, user):
+        async for ev in run_turn(body.session_id, body.message.strip(), body.model, user, body.control):
             yield {"data": json.dumps(clean(ev), ensure_ascii=False, default=str)}
     return EventSourceResponse(gen(), ping=15)
 
@@ -752,12 +760,34 @@ def chat_sessions():
     return [{"id": r.id, "title": r.title, "updated_at": r.updated_at.isoformat()} for r in rows]
 
 
+@app.get("/api/agent/meta")
+def agent_meta():
+    """智能体控制面板用：工作模式、全部工具（名称、说明、参数结构）、默认设置。"""
+    from agent.control import MODE_LABELS, Control
+    from agent.tools import TOOL_LABELS, TOOLS
+    return {"modes": MODE_LABELS, "defaults": Control().dump(),
+            "tools": [{"name": t["function"]["name"], "label": TOOL_LABELS.get(t["function"]["name"], t["function"]["name"]),
+                       "description": t["function"]["description"], "parameters": t["function"]["parameters"]}
+                      for t in TOOLS]}
+
+
+@app.post("/api/chat/resume")
+async def chat_resume(body: ResumeIn):
+    """学生确认工具调用或计划后继续执行（同一轮对话，不另计额度）。"""
+    user = auth.current_user.get()
+
+    async def gen():
+        async for ev in resume_turn(body.session_id, body.decision, body.model, user):
+            yield {"data": json.dumps(clean(ev), ensure_ascii=False, default=str)}
+    return EventSourceResponse(gen(), ping=15)
+
+
 @app.get("/api/chat/sessions/{sid}")
 def chat_session(sid: str):
     with Session(engine()) as s:
         cs = _own_session(s, sid)
         msgs = s.exec(select(ChatMessage).where(ChatMessage.session_id == sid).order_by(ChatMessage.id)).all()
-    return {"id": cs.id, "title": cs.title, "state": json.loads(cs.state_json or "{}"),
+    return {"id": cs.id, "title": cs.title, "state": json.loads(cs.state_json or "{}"), "pending": pending_info(sid),
             "messages": [{"id": m.id, "role": m.role, "content": m.content, "events": json.loads(m.events_json),
                           "model": m.model, "created_at": m.created_at.isoformat()} for m in msgs]}
 

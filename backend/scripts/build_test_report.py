@@ -129,6 +129,15 @@ TEST_NAMES = {
     "test_agent_tool_loop_disclaimer_and_fact_check": "智能体多轮工具调用、参数前后对比、编造数字被识别、强制免责、会话参数延续",
     "test_agent_fact_check_passes_for_real_numbers": "引用真实回测数字时核验通过",
     "test_agent_tool_error_is_fed_back": "工具报错反馈给模型；未回测时不附加免责",
+    "test_confirm_mode_pauses_and_applies_student_decisions": "每步确认：工具调用前暂停；学生拒绝一步、修改另一步参数后继续，拒绝的修改不生效，确认前后是同一条回复",
+    "test_new_message_expires_pending_confirmation": "未确认就发新消息：上一步确认作废，再提交会提示已失效",
+    "test_plan_mode_student_edits_plan_before_execution": "先计划后执行：写计划时不给模型工具、无效步骤被丢弃；学生修改回测区间后按计划逐步执行并总结",
+    "test_plan_mode_cancel": "学生取消计划：不执行任何工具",
+    "test_research_mode_iterates_with_reflection": "自主研究：研究计划 → 执行 → 反思（未达成）→ 第 2 轮 → 反思（达成）→ 研究报告",
+    "test_research_mode_stops_at_iteration_limit": "自主研究达到学生设置的最多迭代轮数时停止并写报告",
+    "test_control_disabled_tool_and_strategy_scope_are_enforced": "学生禁用的工具不提供给模型且执行时被拦截；范围外的策略不能调取，算法库列表按范围筛选",
+    "test_control_backtest_budget": "回测次数上限：超出后被拦截，并且不再向模型提供回测工具",
+    "test_control_parse_is_defensive": "控制设置的非法值（未知模式、未知工具、越界数字）被安全地纠正",
     "test_investment_advice_detection": "识别寻求实盘投资建议的提问",
     "test_compliance_hint_injected": "实盘建议类提问时注入合规指令",
     "test_fallback_chain": "主模型报错 → 备用模型空响应 → 下一个备用模型成功；全部失败时汇总错误",
@@ -141,6 +150,7 @@ TEST_FILES = {
     "tests/test_strategies.py": "策略与回测（真实行情）",
     "tests/test_api.py": "接口、智能体与安全（假模型，不访问网络）",
     "tests/test_auth.py": "账号、班级与权限",
+    "tests/test_agent_modes.py": "智能体工作模式与学生控制（LangGraph 编排，假模型）",
 }
 
 

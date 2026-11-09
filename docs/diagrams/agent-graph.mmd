@@ -1,0 +1,31 @@
+flowchart LR
+  S(["学生的问题 + 控制设置<br/>模式 · 允许的工具 · 策略范围 · 回测上限"]) --> R{"按模式路由"}
+
+  R -->|自动执行| A["agent<br/>模型决定调用哪些工具"]
+  A -->|有工具调用| T["tools<br/>执行前强制检查控制设置"]
+  T --> A
+  A -->|每步确认| AP[["approve<br/>暂停：学生批准 / 改参数 / 拒绝"]]
+  AP --> T
+  A -->|给出回答| E(["核验数字 · 追加免责 · 保存"])
+
+  R -->|先计划后执行| P["planner<br/>模型写计划（不给工具）"]
+  P --> RP[["review_plan<br/>暂停：学生增删改步骤"]]
+  RP --> X["execute_plan<br/>程序按计划逐步执行"]
+  X --> SM["summarize<br/>模型分析结果"]
+  SM --> E
+
+  R -->|自主研究| RS["research_plan<br/>模型拆解目标与达成标准"]
+  RS --> A
+  A -->|本轮小结| RF{"reflect<br/>反思：目标达成了吗？"}
+  RF -->|未达成且有预算| A
+  RF -->|达成 / 轮数或回测用完| RE["report<br/>研究报告"]
+  RE --> E
+
+  classDef io fill:#f1f5f9,stroke:#64748b,color:#1e293b
+  classDef llm fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef exec fill:#dcfce7,stroke:#16a34a,color:#14532d
+  classDef human fill:#fef3c7,stroke:#d97706,color:#78350f
+  class S,E,R io
+  class A,P,SM,RS,RF,RE llm
+  class T,X exec
+  class AP,RP human

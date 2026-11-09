@@ -1,4 +1,4 @@
-// 流式对话：POST /api/chat，读取 SSE 事件流
+// 流式对话：POST /api/chat、/api/chat/resume，读取 SSE 事件流
 import { handleUnauthorized } from './client'
 
 /** 指定对话使用的模型；null 表示自动（按模型设置里的主备顺序） */
@@ -9,20 +9,24 @@ export interface ChatEvent {
   [k: string]: any
 }
 
-export async function streamChat(
-  message: string,
-  sessionId: string | null,
-  onEvent: (e: ChatEvent) => void,
-  signal?: AbortSignal,
-  model: ModelRef | null = null,
-): Promise<void> {
-  const resp = await fetch('/api/chat', {
+/** 学生对智能体的控制设置（见「智能体控制」面板） */
+export type AgentMode = 'auto' | 'confirm' | 'plan' | 'research'
+export interface AgentControl {
+  mode: AgentMode
+  tools: string[]
+  strategies: string[] | null
+  max_backtests: number
+  max_iterations: number
+}
+
+async function readSse(url: string, body: unknown, onEvent: (e: ChatEvent) => void, signal?: AbortSignal) {
+  const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, session_id: sessionId, model }),
+    body: JSON.stringify(body),
     signal,
   })
-  if (resp.status === 401) handleUnauthorized('/api/chat')
+  if (resp.status === 401) handleUnauthorized(url)
   if (!resp.ok || !resp.body) {
     let detail = `请求失败（${resp.status}）`
     try {
@@ -52,4 +56,26 @@ export async function streamChat(
       } catch { /* 心跳等非 JSON 行 */ }
     }
   }
+}
+
+export function streamChat(
+  message: string,
+  sessionId: string | null,
+  onEvent: (e: ChatEvent) => void,
+  signal?: AbortSignal,
+  model: ModelRef | null = null,
+  control: AgentControl | null = null,
+): Promise<void> {
+  return readSse('/api/chat', { message, session_id: sessionId, model, control }, onEvent, signal)
+}
+
+/** 学生确认工具调用或计划后，让智能体从暂停处继续 */
+export function resumeChat(
+  sessionId: string,
+  decision: Record<string, any>,
+  onEvent: (e: ChatEvent) => void,
+  signal?: AbortSignal,
+  model: ModelRef | null = null,
+): Promise<void> {
+  return readSse('/api/chat/resume', { session_id: sessionId, decision, model }, onEvent, signal)
 }

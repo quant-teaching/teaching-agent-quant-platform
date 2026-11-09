@@ -10,10 +10,10 @@ import ipaddress
 import json
 import socket
 import time
-from urllib.parse import urlparse
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from openai import AsyncOpenAI

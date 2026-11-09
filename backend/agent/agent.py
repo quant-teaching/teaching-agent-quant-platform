@@ -1,5 +1,8 @@
 """对话智能体：调度层。解析用户的自然语言 → 调用算法库、回测引擎、知识库工具 → 基于工具结果做教学分析。
 
+一轮对话由 graph.py 中的 LangGraph 状态图编排，支持四种工作模式（自动执行、每步确认、先计划后执行、自主研究）；
+需要学生确认时图会暂停，确认结果通过 resume_turn 送回后继续执行。
+
 三道保障：
 1. 免责：本轮只要执行过回测，回复末尾由程序追加免责声明，不依赖模型自觉；
 2. 合规：识别寻求实盘投资建议的提问，提示模型拒绝并引导回教学；
@@ -8,12 +11,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
 from typing import Any
 
+from langgraph.types import Command
 from sqlmodel import Session, select
 
 from api import services
@@ -21,13 +24,14 @@ from api.db import ChatMessage, ChatSession, engine, now
 from quant.data.catalog import FUTURES
 from quant.strategies.base import load_all
 
+from .control import Control
+from .graph import GRAPH, plain
+from .graph import tool_label as _tool_label  # noqa: F401  兼容旧的导入位置
 from .llm import LLMError, ModelRef, stream_chat
-from .tools import TOOL_LABELS, TOOLS, SessionState, Toolbox, ToolError, today
+from .tools import SessionState, today
 
-MAX_ROUNDS = 8
 HISTORY_TURNS = 10
 TOOL_RESULT_HISTORY_CHARS = 2500
-BACKTEST_TOOLS = {"run_backtest", "run_portfolio_backtest", "compare_params"}
 
 ADVICE_PATTERNS = [
     r"(买|卖|入手|抄底|加仓|减仓|清仓).{0,6}(哪|什么|哪些|哪只|哪个)",
@@ -201,120 +205,138 @@ def _title_from(text: str) -> str:
     return t[:24] + ("…" if len(t) > 24 else "")
 
 
-def _tool_label(name: str, args: dict[str, Any]) -> str:
-    base = TOOL_LABELS.get(name, name)
-    target = args.get("strategy") or args.get("base") or args.get("query") or ""
-    if name == "run_portfolio_backtest":
-        target = " + ".join(c.get("strategy", "") for c in args.get("components", []))
-    if args.get("start") and args.get("end"):
-        target += f"（{args['start']} ~ {args['end']}）"
-    return f"{base}：{target}" if target else base
+# ---------------------------------------------------------------- 一轮对话
+
+# 等待学生确认的对话：session_id → {thread, message_id, user_text, payload}。
+# 图的检查点也只在内存里，服务重启后待确认的步骤会失效，学生重新发送即可。
+PENDING: dict[str, dict[str, Any]] = {}
 
 
-async def run_turn(session_id: str | None, user_text: str,
-                   model: ModelRef | None = None, user: Any = None) -> AsyncIterator[dict[str, Any]]:
+async def run_turn(session_id: str | None, user_text: str, model: ModelRef | None = None, user: Any = None,
+                   control: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
+    import uuid
+
+    ctl = Control.parse(control)
     cs = get_or_create_session(session_id)
+    _expire_pending(cs.id)
     state = SessionState.load(cs.state_json)
-    toolbox = Toolbox(state, cs.id)
     yield {"type": "session", "session_id": cs.id}
 
-    sys = system_prompt(state)
+    sys = system_prompt(state) + ctl.prompt()
     messages: list[dict] = [{"role": "system", "content": sys}, *_history(cs.id)]
     if wants_investment_advice(user_text):
         messages.append({"role": "system", "content":
                          "注意：用户这条消息可能在寻求实盘投资建议。请明确说明本平台仅用于量化策略教学，"
                          "不提供任何买卖建议或行情预测，然后引导用户学习相关策略或做历史回测。"})
     messages.append({"role": "user", "content": user_text})
-
-    turn_msgs: list[dict] = []  # 本轮新增、需要存档给后续上下文的消息
-    events: list[dict] = []  # 前端卡片
     # 核验来源：本轮与历史中的工具结果、用户输入、系统信息
     sources: list[Any] = [user_text, sys] + [m["content"] for m in messages if m["role"] in ("tool", "user")]
-    ran_backtest = False
-    final = ""
-    model_used = None
+    init = {"mode": ctl.mode, "control": ctl.dump(), "session_id": cs.id, "session_state": cs.state_json or "",
+            "messages": messages, "turn_msgs": [], "events": [], "sources": sources, "pending": [],
+            "backtests": 0, "rounds": 0, "ran_backtest": False, "final": "", "model_used": None}
+    thread = f"{cs.id}:{uuid.uuid4().hex[:8]}"
+    async for ev in _drive(init, thread, cs.id, user_text, None, model, user):
+        yield ev
 
+
+async def resume_turn(session_id: str, decision: dict[str, Any], model: ModelRef | None = None,
+                      user: Any = None) -> AsyncIterator[dict[str, Any]]:
+    """学生确认（工具调用或计划）后，从暂停处继续执行。"""
+    cs = get_or_create_session(session_id)
+    p = PENDING.get(cs.id) if cs.id == session_id else None
+    yield {"type": "session", "session_id": cs.id}
+    if not p:
+        yield {"type": "error", "message": "这一步的确认已经失效（可能服务重启过，或你已发送了新消息），请重新发送你的问题。"}
+        yield {"type": "done", "message_id": None, "content": ""}
+        return
+    async for ev in _drive(Command(resume=decision), p["thread"], cs.id, p["user_text"], p["message_id"], model, user):
+        yield ev
+
+
+def pending_info(session_id: str) -> dict[str, Any] | None:
+    p = PENDING.get(session_id)
+    return {"message_id": p["message_id"], **p["payload"]} if p else None
+
+
+async def _drive(inp: Any, thread: str, sid: str, user_text: str, message_id: int | None,
+                 model: ModelRef | None, user: Any) -> AsyncIterator[dict[str, Any]]:
+    config = {"configurable": {"thread_id": thread, "llm": stream_chat, "model": model, "user": user},
+              "recursion_limit": 100}
+    error = None
     try:
-        for _ in range(MAX_ROUNDS):
-            completion = None
-            async for ev in stream_chat(messages + turn_msgs, TOOLS, prefer=model, user=user):
-                if ev["type"] == "done":
-                    completion = ev["completion"]
-                    continue
-                if ev["type"] == "model":
-                    model_used = ev['model']  # 只显示模型名，不显示接口（渠道）名称
-                if ev["type"] == "switch":
-                    events.append({"kind": "model_switch", **{k: ev[k] for k in ("from", "to", "reason")}})
-                yield ev
-            assert completion is not None
-            if not completion.tool_calls:
-                final = completion.content
-                break
-            turn_msgs.append({
-                "role": "assistant", "content": completion.content or "",
-                "tool_calls": [{"id": c.id, "type": "function",
-                                "function": {"name": c.name, "arguments": c.arguments or "{}"}}
-                               for c in completion.tool_calls],
-            })
-            if completion.content:
-                yield {"type": "round_text_end"}
-            for call in completion.tool_calls:
-                try:
-                    args = json.loads(call.arguments or "{}")
-                except json.JSONDecodeError:
-                    args = None
-                label = _tool_label(call.name, args or {})
-                yield {"type": "tool_start", "id": call.id, "name": call.name, "label": label, "args": args}
-                card = None
-                if args is None:
-                    result: dict[str, Any] = {"error": "参数不是合法的 JSON，请重新生成"}
-                    ok = False
-                else:
-                    try:
-                        result, card = await asyncio.to_thread(toolbox.call, call.name, args)
-                        ok = True
-                        if call.name in BACKTEST_TOOLS:
-                            ran_backtest = True
-                    except ToolError as e:
-                        result, ok = {"error": str(e)}, False
-                    except Exception as e:  # 工具内部异常也反馈给模型，让它调整
-                        result, ok = {"error": f"{type(e).__name__}: {e}"}, False
-                sources.append(result)
-                content = json.dumps(result, ensure_ascii=False, default=str)
-                turn_msgs.append({"role": "tool", "tool_call_id": call.id, "content": content})
-                ev = {"type": "tool_end", "id": call.id, "name": call.name, "label": label, "ok": ok,
-                      "error": None if ok else result.get("error"), "card": card}
-                events.append({"kind": "tool", **{k: ev[k] for k in ("id", "name", "label", "ok", "error", "card")}})
-                yield ev
-        else:
-            final = final or "（工具调用轮数过多，已停止。请把问题拆小一些再试。）"
+        async for mode, chunk in GRAPH.astream(inp, config, stream_mode=["custom", "updates"]):
+            if mode == "custom":
+                yield chunk
     except LLMError as e:
+        error = f"抱歉，模型调用失败：{e}"
         yield {"type": "error", "message": str(e)}
-        final = f"抱歉，模型调用失败：{e}"
     except Exception as e:
+        error = f"抱歉，处理时出现错误：{type(e).__name__}"
         yield {"type": "error", "message": f"{type(e).__name__}: {e}"}
-        final = f"抱歉，处理时出现错误：{type(e).__name__}"
 
-    check = fact_check(final, sources) if final else {"status": "ok", "checked": 0, "unmatched": []}
+    snap = await GRAPH.aget_state(config)
+    vals = snap.values
+    events = list(vals.get("events", []))
+    if snap.interrupts and not error:  # 暂停，等学生确认
+        payload = plain(snap.interrupts[0].value)
+        partial = vals.get("pending_text", "")
+        mid = _save(sid, user_text, message_id, partial, events + [{**payload, "kind": "approval", "type": payload.get("kind"), "status": "pending"}],
+                    vals, None)
+        PENDING[sid] = {"thread": thread, "message_id": mid, "user_text": user_text, "payload": payload}
+        yield {"type": "approval", "message_id": mid, **payload}
+        yield {"type": "done", "message_id": mid, "content": partial, "paused": True}
+        return
+
+    PENDING.pop(sid, None)
+    final = error or vals.get("final") or ""
+    check = fact_check(final, vals.get("sources", [])) if final and not error else \
+        {"status": "ok", "checked": 0, "unmatched": []}
     events.append({"kind": "fact_check", **check})
     yield {"type": "fact_check", **check}
-    if ran_backtest:
+    if vals.get("ran_backtest"):
         yield {"type": "disclaimer", "text": services.DISCLAIMER}
         final = f"{final.rstrip()}\n\n{services.DISCLAIMER}"
+    mid = _save(sid, user_text, message_id, final, events, vals, vals.get("model_used"))
+    yield {"type": "done", "message_id": mid, "content": final}
 
+
+def _save(sid: str, user_text: str, message_id: int | None, content: str, events: list[dict],
+          vals: dict[str, Any], model_used: str | None) -> int:
+    """写入（或更新暂停时已写入的）本轮消息，并保存会话状态。"""
+    events_json = json.dumps(events, ensure_ascii=False, default=str)
+    llm_json = json.dumps(vals.get("turn_msgs", []), ensure_ascii=False, default=str)
     with Session(engine()) as s:
-        s.add(ChatMessage(session_id=cs.id, role="user", content=user_text))
-        msg = ChatMessage(session_id=cs.id, role="assistant", content=final,
-                          events_json=json.dumps(events, ensure_ascii=False, default=str),
-                          llm_json=json.dumps(turn_msgs, ensure_ascii=False, default=str), model=model_used)
+        msg = s.get(ChatMessage, message_id) if message_id else None
+        if msg is None:
+            s.add(ChatMessage(session_id=sid, role="user", content=user_text))
+            msg = ChatMessage(session_id=sid, role="assistant", content="")
+        msg.content, msg.events_json, msg.llm_json = content, events_json, llm_json
+        msg.model = model_used or msg.model
         s.add(msg)
-        row = s.get(ChatSession, cs.id)
-        row.state_json = state.dump()
+        row = s.get(ChatSession, sid)
+        if vals.get("session_state"):
+            row.state_json = vals["session_state"]
         row.updated_at = now()
         if row.title == "新对话":
             row.title = _title_from(user_text)
         s.add(row)
         s.commit()
         s.refresh(msg)
-        mid = msg.id
-    yield {"type": "done", "message_id": mid, "content": final}
+        return msg.id
+
+
+def _expire_pending(sid: str) -> None:
+    """学生没确认就发了新消息：上一轮暂停的步骤作废。"""
+    p = PENDING.pop(sid, None)
+    if not p:
+        return
+    with Session(engine()) as s:
+        msg = s.get(ChatMessage, p["message_id"])
+        if msg:
+            events = json.loads(msg.events_json or "[]")
+            for e in events:
+                if e.get("kind") == "approval" and e.get("status") == "pending":
+                    e["status"] = "expired"
+            msg.events_json = json.dumps(events, ensure_ascii=False)
+            s.add(msg)
+            s.commit()

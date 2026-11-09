@@ -3,12 +3,14 @@ import { BookOpen, ChartLine, Layers, MessageSquarePlus, PanelLeft, PanelRightCl
 import { NButton, NInput, NPopconfirm, NSpin, NTooltip, useMessage } from 'naive-ui'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { streamChat, type ChatEvent, type ModelRef } from '@/api/chat'
+import { resumeChat, streamChat, type ChatEvent, type ModelRef } from '@/api/chat'
 import { api, getBacktest, type BacktestPayload } from '@/api/client'
+import AgentControlPicker from '@/components/chat/AgentControlPicker.vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
-import { DISCLAIMER, type TextBlock, type ToolBlock, type UiMessage } from '@/components/chat/types'
+import { DISCLAIMER, type ApprovalBlock, type Block, type UiMessage } from '@/components/chat/types'
 import BacktestReport from '@/components/report/BacktestReport.vue'
+import { useAgentControl } from '@/stores/agentControl'
 import { useCatalog } from '@/stores/catalog'
 import { timeAgo } from '@/utils/format'
 
@@ -16,6 +18,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useMessage()
 const catalog = useCatalog()
+const agentCtl = useAgentControl()
 
 const sessions = ref<{ id: string; title: string; updated_at: string }[]>([])
 const sessionId = ref<string | null>((route.params.sessionId as string) || null)
@@ -46,14 +49,19 @@ async function loadSessions() {
   sessions.value = await api.get('/api/chat/sessions')
 }
 
-function fromServer(m: any): UiMessage {
+function fromServer(m: any, pendingId: number | null = null): UiMessage {
   if (m.role === 'user') return { key: `u${m.id}`, role: 'user', text: m.content, blocks: [], switches: [] }
-  const blocks: (ToolBlock | TextBlock)[] = []
+  const blocks: Block[] = []
   const switches: UiMessage['switches'] = []
   let factCheck = null
   for (const e of m.events as any[]) {
     if (e.kind === 'tool') blocks.push({ kind: 'tool', id: e.id, name: e.name, label: e.label, status: e.ok ? 'ok' : 'error', error: e.error, card: e.card })
-    else if (e.kind === 'fact_check') factCheck = e
+    else if (e.kind === 'phase' || e.kind === 'plan') blocks.push(e)
+    else if (e.kind === 'approval') {
+      // 只有服务器上仍在等待的那一步可以继续确认，其余的视为失效
+      const status = e.status === 'pending' && pendingId !== m.id ? 'expired' : e.status
+      blocks.push({ ...e, status })
+    } else if (e.kind === 'fact_check') factCheck = e
     else if (e.kind === 'model_switch') switches.push({ from: e.from, to: e.to, reason: e.reason })
   }
   let text: string = m.content
@@ -73,7 +81,7 @@ async function openSession(id: string | null) {
   loadingSession.value = true
   try {
     const s = await api.get<any>(`/api/chat/sessions/${id}`)
-    messages.value = s.messages.map(fromServer)
+    messages.value = s.messages.map((m: any) => fromServer(m, s.pending?.message_id ?? null))
     await scrollToEnd(true)
   } catch (e: any) {
     toast.error(e.message)
@@ -96,20 +104,10 @@ async function scrollToEnd(force = false) {
   if (force || near) el.scrollTop = el.scrollHeight
 }
 
-async function send(text?: string) {
-  const content = (text ?? input.value).trim()
-  if (!content || busy.value) return
-  input.value = ''
-  busy.value = true
-  messages.value.push({ key: `u${Date.now()}`, role: 'user', text: content, blocks: [], switches: [] })
-  const bot: UiMessage = { key: `a${Date.now()}`, role: 'assistant', blocks: [], streaming: true, switches: [], factCheck: null }
-  messages.value.push(bot)
-  const msg = messages.value[messages.value.length - 1] // 使用响应式代理
-  await scrollToEnd(true)
-  let roundStart = 0
-  abort = new AbortController()
-
-  const onEvent = (e: ChatEvent) => {
+/** 把流式事件应用到一条回复上。新对话和"确认后继续"共用。 */
+function eventHandler(msg: UiMessage) {
+  let roundStart = msg.blocks.length
+  return (e: ChatEvent) => {
     switch (e.type) {
       case 'session':
         if (sessionId.value !== e.session_id) {
@@ -126,16 +124,36 @@ async function send(text?: string) {
         msg.blocks.splice(roundStart) // 丢弃失败模型已输出的片段
         break
       case 'delta': {
+        msg.status = ''
         const last = msg.blocks[msg.blocks.length - 1]
         if (last && last.kind === 'text') last.text += e.text
         else msg.blocks.push({ kind: 'text', text: e.text })
         break
       }
+      case 'phase': {
+        const { type: _t, ...rest } = e
+        if (e.name === 'planning' || e.name === 'reflecting') msg.status = e.label
+        else { msg.status = ''; msg.blocks.push({ kind: 'phase', ...rest } as Block) }
+        break
+      }
+      case 'approval':
+        msg.status = ''
+        msg.blocks.push({ kind: 'approval', type: e.kind, status: 'pending', text: e.text, intro: e.intro, calls: e.calls, steps: e.steps })
+        break
+      case 'approval_done': {
+        const b = [...msg.blocks].reverse().find((x) => x.kind === 'approval' && (x.status === 'pending' || x.status === 'submitting')) as ApprovalBlock | undefined
+        if (b) Object.assign(b, { status: e.status, items: e.items, feedback: e.feedback, edited: e.edited })
+        break
+      }
+      case 'plan':
+        msg.blocks.push({ kind: 'plan', intro: e.intro, steps: e.steps })
+        break
       case 'tool_start':
+        msg.status = ''
         msg.blocks.push({ kind: 'tool', id: e.id, name: e.name, label: e.label, status: 'running' })
         break
       case 'tool_end': {
-        const b = msg.blocks.find((x) => x.kind === 'tool' && x.id === e.id) as ToolBlock | undefined
+        const b = msg.blocks.find((x) => x.kind === 'tool' && x.id === e.id) as any
         if (b) Object.assign(b, { status: e.ok ? 'ok' : 'error', error: e.error, card: e.card, label: e.label })
         if (e.ok && e.card && (e.card.kind === 'backtest' || e.card.kind === 'portfolio')) openPanel(e.card.result_id)
         break
@@ -150,27 +168,60 @@ async function send(text?: string) {
         msg.error = e.message
         break
       case 'done':
-        if (!msg.blocks.some((b) => b.kind === 'text' && b.text.trim())) {
+        msg.status = ''
+        if (!e.paused && !msg.blocks.some((b) => b.kind === 'text' && b.text.trim())) {
           let t: string = e.content ?? ''
           if (t.trimEnd().endsWith(DISCLAIMER)) t = t.trimEnd().slice(0, -DISCLAIMER.length)
-          msg.blocks.push({ kind: 'text', text: t })
+          if (t.trim()) msg.blocks.push({ kind: 'text', text: t })
         }
         break
     }
     scrollToEnd()
   }
+}
 
+async function runStream(msg: UiMessage, start: (onEvent: (e: ChatEvent) => void, signal: AbortSignal) => Promise<void>) {
+  busy.value = true
+  msg.streaming = true
+  abort = new AbortController()
   try {
-    await streamChat(content, sessionId.value, onEvent, abort.signal, chatModel.value)
+    await start(eventHandler(msg), abort.signal)
   } catch (e: any) {
     if (e.name !== 'AbortError') msg.error = e.message || '连接中断'
     else msg.error = '已停止生成'
   } finally {
     msg.streaming = false
+    msg.status = ''
     busy.value = false
     abort = null
     loadSessions()
   }
+}
+
+async function send(text?: string) {
+  const content = (text ?? input.value).trim()
+  if (!content || busy.value) return
+  input.value = ''
+  // 上一轮还在等确认的步骤随新消息作废
+  for (const m of messages.value) for (const b of m.blocks) if (b.kind === 'approval' && b.status === 'pending') b.status = 'expired'
+  messages.value.push({ key: `u${Date.now()}`, role: 'user', text: content, blocks: [], switches: [] })
+  const bot: UiMessage = { key: `a${Date.now()}`, role: 'assistant', blocks: [], streaming: true, switches: [], factCheck: null }
+  messages.value.push(bot)
+  const msg = messages.value[messages.value.length - 1] // 使用响应式代理
+  await scrollToEnd(true)
+  const control = JSON.parse(JSON.stringify(agentCtl.control))
+  await runStream(msg, (onEvent, signal) => streamChat(content, sessionId.value, onEvent, signal, chatModel.value, control))
+}
+
+/** 学生在确认卡片上做出决定后，让智能体继续 */
+async function decide(msg: UiMessage, block: ApprovalBlock, decision: Record<string, any>) {
+  if (busy.value || !sessionId.value) return
+  block.status = 'submitting'
+  msg.error = null
+  msg.factCheck = null
+  const sid = sessionId.value
+  await runStream(msg, (onEvent, signal) => resumeChat(sid, decision, onEvent, signal, chatModel.value))
+  if (block.status === 'submitting') block.status = msg.error ? 'expired' : 'done'
 }
 
 function stop() {
@@ -217,6 +268,12 @@ async function remove(id: string) {
 }
 
 const empty = computed(() => !messages.value.length && !loadingSession.value)
+const placeholder = computed(() => ({
+  auto: '例如：把海龟策略的 ATR 周期改成 20，仓位上限 0.2，回测 2021 到 2024 年',
+  confirm: '每步确认：智能体调用工具前会先请你批准、修改或拒绝',
+  plan: '先计划后执行：说出你的需求，智能体会先列计划给你审核',
+  research: '自主研究：描述研究目标，例如"找一个 2022~2025 年最大回撤小于 15% 的股票策略"',
+}[agentCtl.control.mode]))
 
 onMounted(async () => {
   try {
@@ -283,7 +340,7 @@ onMounted(async () => {
               </button>
             </div>
           </div>
-          <ChatMessage v-for="m in messages" :key="m.key" :msg="m" @open="openPanel" />
+          <ChatMessage v-for="m in messages" :key="m.key" :msg="m" :busy="busy" @open="openPanel" @decide="(b, d) => decide(m, b, d)" />
         </div>
       </div>
 
@@ -291,8 +348,9 @@ onMounted(async () => {
         <div class="composer">
           <NInput
             v-model:value="input" type="textarea" :autosize="{ minRows: 1, maxRows: 7 }" :bordered="false"
-            placeholder="例如：把海龟策略的 ATR 周期改成 20，仓位上限 0.2，回测 2021 到 2024 年" @keydown="onKey"
+            :placeholder="placeholder" @keydown="onKey"
           />
+          <span class="picker"><AgentControlPicker /></span>
           <span class="picker"><ModelPicker v-model="chatModel" /></span>
           <NButton v-if="busy" circle secondary type="error" @click="stop"><template #icon><Square :size="14" /></template></NButton>
           <NButton v-else circle type="primary" :disabled="!input.trim()" @click="send()"><template #icon><Send :size="15" /></template></NButton>
@@ -400,6 +458,8 @@ onMounted(async () => {
 .panel-body { flex: 1; overflow-y: auto; padding: 16px 18px 28px; }
 @keyframes panel-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
 @media (max-width: 1280px) { .with-panel .sessions { display: none; } }
+/* 右侧报告展开时输入框较窄：两个选择器只显示图标 */
+.with-panel .composer :deep(.trigger .lb), .with-panel .composer :deep(.trigger .chev) { display: none; }
 @media (max-width: 1000px) { .panel { position: fixed; inset: 0 0 0 64px; width: auto; min-width: 0; z-index: 20; } .sugs { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {
   .sessions { position: fixed; left: 64px; top: 0; bottom: 0; z-index: 15; box-shadow: var(--shadow-md); }

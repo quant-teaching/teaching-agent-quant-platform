@@ -3,21 +3,28 @@ import { AlertTriangle, Check, ChevronDown, Loader2, Repeat, ShieldAlert, Shield
 import { NTooltip } from 'naive-ui'
 import { computed, ref } from 'vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
+import ApprovalCard from './ApprovalCard.vue'
+import PhaseCard from './PhaseCard.vue'
 import ToolCard from './ToolCard.vue'
-import type { ToolBlock, UiMessage } from './types'
+import type { ApprovalBlock, PhaseBlock, PlanBlock, ToolBlock, UiMessage } from './types'
 
-const props = defineProps<{ msg: UiMessage }>()
-const emit = defineEmits<{ open: [id: string] }>()
+const props = defineProps<{ msg: UiMessage; busy?: boolean }>()
+const emit = defineEmits<{ open: [id: string]; decide: [block: ApprovalBlock, decision: Record<string, any>] }>()
 const collapsed = ref<Record<string, boolean>>({})
 
 // 连续的工具步骤合并成一组展示
 const groups = computed(() => {
-  const out: ({ type: 'tools'; items: ToolBlock[] } | { type: 'text'; text: string; last: boolean })[] = []
+  const out: ({ type: 'tools'; items: ToolBlock[] } | { type: 'text'; text: string; last: boolean }
+    | { type: 'phase'; block: PhaseBlock | PlanBlock } | { type: 'approval'; block: ApprovalBlock })[] = []
   props.msg.blocks.forEach((b, i) => {
     if (b.kind === 'tool') {
       const last = out[out.length - 1]
       if (last && last.type === 'tools') last.items.push(b)
       else out.push({ type: 'tools', items: [b] })
+    } else if (b.kind === 'phase' || b.kind === 'plan') {
+      out.push({ type: 'phase', block: b })
+    } else if (b.kind === 'approval') {
+      out.push({ type: 'approval', block: b })
     } else if (b.text.trim()) {
       out.push({ type: 'text', text: b.text, last: i === props.msg.blocks.length - 1 })
     }
@@ -27,7 +34,7 @@ const groups = computed(() => {
 function hasCard(t: ToolBlock) {
   return !!t.card
 }
-const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length || props.msg.blocks[props.msg.blocks.length - 1].kind === 'tool'))
+const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length || props.msg.blocks[props.msg.blocks.length - 1].kind !== 'text'))
 </script>
 
 <template>
@@ -57,10 +64,12 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
             <ToolCard v-if="t.card && !collapsed[t.id]" :card="t.card" @open="emit('open', $event)" />
           </div>
         </div>
+        <PhaseCard v-else-if="g.type === 'phase'" :block="g.block" />
+        <ApprovalCard v-else-if="g.type === 'approval'" :block="g.block" :busy="busy" @decide="emit('decide', g.block, $event)" />
         <MarkdownView v-else breaks :source="g.text + (msg.streaming && g.last ? ' ▍' : '')" class="text" />
       </template>
 
-      <div v-if="thinking" class="thinking"><span /><span /><span /></div>
+      <div v-if="thinking" class="thinking"><span /><span /><span /><em v-if="msg.status">{{ msg.status }}</em></div>
 
       <div v-if="msg.error" class="error"><AlertTriangle :size="14" /> {{ msg.error }}</div>
 
@@ -119,7 +128,8 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
 .step-err { font-size: 12px; color: var(--up); margin: 2px 0 2px 12px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.thinking { display: flex; gap: 4px; padding: 10px 2px; }
+.thinking { display: flex; align-items: center; gap: 4px; padding: 10px 2px; }
+.thinking em { font-style: normal; font-size: 12.5px; color: var(--text-3); margin-left: 6px; }
 .thinking span { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); animation: blink 1.2s infinite ease-in-out; }
 .thinking span:nth-child(2) { animation-delay: 0.15s; }
 .thinking span:nth-child(3) { animation-delay: 0.3s; }
