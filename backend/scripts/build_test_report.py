@@ -138,6 +138,18 @@ TEST_NAMES = {
     "test_control_disabled_tool_and_strategy_scope_are_enforced": "学生禁用的工具不提供给模型且执行时被拦截；范围外的策略不能调取，算法库列表按范围筛选",
     "test_control_backtest_budget": "回测次数上限：超出后被拦截，并且不再向模型提供回测工具",
     "test_control_parse_is_defensive": "控制设置的非法值（未知模式、未知工具、越界数字）被安全地纠正",
+    "test_grid_segments_match_a_direct_backtest": "稳健性检验：网格中每组参数的样本外收益与单独回测后按分割日切分的结果一致；排名与秩相关系数有效",
+    "test_invalid_combinations_are_skipped_not_fatal": "不合法的参数组合（如短均线 ≥ 长均线）被跳过并给出原因",
+    "test_bad_requests_give_chinese_errors": "未知参数、取值太少、组合过多、分割日越界给出中文错误",
+    "test_api_endpoint": "稳健性检验接口：一维网格与全部组合不合法时的报错",
+    "test_stock_backtest_reconciles_to_the_cent": "独立核验：成交价、手续费逐笔一致，账本对账差额小于 1 分钱，开盘价按分报价",
+    "test_dividends_are_part_of_the_ledger": "现金分红计入账本对账",
+    "test_futures_fill_prices_match_contract_open": "期货成交价 = 当日实际合约开盘价 ± 滑点",
+    "test_portfolio_is_explained_not_audited": "组合回测提示到子策略报告中核验",
+    "test_fact_check_reports_where_each_number_came_from": "数字核验给出每个数字的出处（工具结果与字段），编造的数字单独列出",
+    "test_assignment_needs_login": "作业功能需要开启登录",
+    "test_assignment_flow": "布置作业 → 学生开始 → 作业锁定的策略范围覆盖学生自己的设置 → 老师查看进度与对话 → 删除后对话保留",
+    "test_experiment_report_docx": "一键导出 Word 实验报告：包含提问、操作步骤、回测结果、我的结论与免责声明",
     "test_investment_advice_detection": "识别寻求实盘投资建议的提问",
     "test_compliance_hint_injected": "实盘建议类提问时注入合规指令",
     "test_fallback_chain": "主模型报错 → 备用模型空响应 → 下一个备用模型成功；全部失败时汇总错误",
@@ -151,6 +163,9 @@ TEST_FILES = {
     "tests/test_api.py": "接口、智能体与安全（假模型，不访问网络）",
     "tests/test_auth.py": "账号、班级与权限",
     "tests/test_agent_modes.py": "智能体工作模式与学生控制（LangGraph 编排，假模型）",
+    "tests/test_robustness.py": "参数稳健性检验（样本内 / 样本外）",
+    "tests/test_audit.py": "回测结果独立核验",
+    "tests/test_assignments.py": "老师布置作业与实验报告",
 }
 
 
