@@ -376,7 +376,9 @@ async def test_fallback_chain(monkeypatch):
     assert "服务不可用" in switches[0]["reason"] and "空响应" in switches[1]["reason"]
     done = events[-1]
     assert done["type"] == "done" and done["completion"].content == "你好" and done["completion"].model == "good"
-    # 全部失败时给出汇总错误
+    # 全部失败时给出汇总错误（关闭离线兜底时）
+    from api.settings import get_settings
+    monkeypatch.setattr(get_settings(), "offline_fallback", False)
     llm_mod.save_routing(llm_mod.Routing(primary=llm_mod.ModelRef(provider_id=p.id, model="bad")))
     with pytest.raises(llm_mod.LLMError, match="所有模型都调用失败"):
         _ = [e async for e in llm_mod.stream_chat([{"role": "user", "content": "hi"}])]

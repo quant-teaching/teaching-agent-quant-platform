@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     llm_provider_name: str = "默认接口"
     llm_model: str = ""
     llm_fallback_model: str = ""
+    # 离线兜底：云端模型都不可用时，由规则助手解析意图、调用工具、按模板整理真实结果（不使用任何模型）
+    offline_fallback: bool = True
 
     database_url: str = f"sqlite:///{DATA_DIR / 'app.db'}"
     results_dir: Path = DATA_DIR / "results"

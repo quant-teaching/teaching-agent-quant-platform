@@ -326,11 +326,18 @@ async def stream_chat(messages: list[dict], tools: list[dict] | None = None,
     """
     import asyncio
 
+    from api.settings import get_settings
+
+    from . import offline
     routing = get_routing()
     chain = plan(prefer, user)
     if not chain:
         if not platform_allowed(user):
             raise LLMError("你的平台模型使用权限已被关闭，请联系老师；也可以在「设置 → 我的模型」添加自己的模型渠道")
+        if get_settings().offline_fallback:  # 没有配置任何云端模型：直接用离线助手
+            async for ev in offline.rule_stream(messages, tools, "还没有配置云端模型"):
+                yield ev
+            return
         raise LLMError("还没有配置可用的模型，请先到「设置 → 模型接口」添加接口并选择主模型")
     for prov, _ in chain:  # 自己的渠道每次调用前都重新检查地址，防止域名解析被改到内网
         if prov.owner_id is not None:
@@ -387,4 +394,9 @@ async def stream_chat(messages: list[dict], tools: list[dict] | None = None,
             reason = "响应超时" if isinstance(e, asyncio.TimeoutError) else _err_text(e)
             errors.append((label, reason))
     detail = "；".join(f"{lb}：{r}" for lb, r in errors)
+    if get_settings().offline_fallback:  # 云端模型全部失败（如断网）：切到离线助手
+        yield {"type": "switch", "from": errors[-1][0], "to": "离线助手", "reason": errors[-1][1]}
+        async for ev in offline.rule_stream(messages, tools, "云端模型均不可用"):
+            yield ev
+        return
     raise LLMError(f"所有模型都调用失败（{detail}）")

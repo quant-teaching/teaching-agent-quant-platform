@@ -1,8 +1,10 @@
 ﻿# 一键启动（Windows）：安装依赖 → 构建前端（已构建则跳过，-Build 强制重建）→ 启动后端（同时托管前端页面）
-# 用法：双击 start.bat；或在 PowerShell 中运行 .\start.ps1 [-Build] [-NoBrowser]
+# 用法：双击 start.bat；或在 PowerShell 中运行 .\start.ps1 [-Build] [-NoBrowser] [-Lan]
+# -Lan：局域网模式，同一网络的其他电脑也能访问（不需要外网）
 param(
     [switch]$Build,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$Lan
 )
 
 $ErrorActionPreference = "Continue"
@@ -22,7 +24,7 @@ try {
               '  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"')
     }
 
-    $hostAddr = if ($env:HOST) { $env:HOST } else { "127.0.0.1" }
+    $hostAddr = if ($Lan) { "0.0.0.0" } elseif ($env:HOST) { $env:HOST } else { "127.0.0.1" }
     $port = if ($env:PORT) { $env:PORT } else { "8000" }
     $browseHost = if ($hostAddr -eq "0.0.0.0") { "127.0.0.1" } else { $hostAddr }
     $url = "http://${browseHost}:$port"
@@ -75,6 +77,19 @@ try {
 
     Step "启动服务：$url（按 Ctrl+C 停止）"
     Push-Location backend
+    if ($hostAddr -eq "0.0.0.0") {
+        Step "局域网模式：同一网络的电脑可以用下面的地址访问"
+        try {
+            Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+                Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } |
+                ForEach-Object { Write-Host "    http://$($_.IPAddress):$port" -ForegroundColor Green }
+        } catch { Write-Host "    （运行 ipconfig 查看本机 IP）" }
+        Write-Host "    首次运行时如果 Windows 防火墙弹窗，请勾选「专用网络」并允许访问。" -ForegroundColor Yellow
+        $envFile = Join-Path $PSScriptRoot ".env"
+        if (-not ((Test-Path $envFile) -and (Select-String -Path $envFile -Pattern '^\s*AUTH_ENABLED\s*=\s*(1|true)' -Quiet))) {
+            Write-Host "    提醒：没有开启登录，局域网内任何人都能使用全部功能（含模型设置）。多人使用请在 .env 中设置 AUTH_ENABLED=1。" -ForegroundColor Yellow
+        }
+    }
     uv run python -m uvicorn api.main:app --host $hostAddr --port $port
     $code = $LASTEXITCODE
     Pop-Location
