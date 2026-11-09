@@ -96,9 +96,23 @@ class AuthSession(SQLModel, table=True):
     created_at: datetime = Field(default_factory=now)
 
 
+class Assignment(SQLModel, table=True):
+    """老师给班级布置的实验作业。control_json 锁定智能体的工作模式、工具、策略范围与回测上限。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    class_id: int = Field(index=True)
+    teacher_id: int | None = Field(default=None, index=True)
+    title: str
+    task: str = Field(default="", sa_column=Column(Text))  # 作业要求（学生开始作业时作为第一段说明）
+    control_json: str = Field(default="{}", sa_column=Column(Text))
+    due: str | None = None  # 截止日期 YYYY-MM-DD，可为空
+    created_at: datetime = Field(default_factory=now)
+
+
 class ChatSession(SQLModel, table=True):
     id: str = Field(primary_key=True)
     user_id: int | None = Field(default=None, index=True)  # 开启登录后按用户隔离
+    assignment_id: int | None = Field(default=None, index=True)  # 作业对话：智能体按作业锁定的设置工作
     title: str = "新对话"
     state_json: str = Field(default="{}", sa_column=Column(Text))  # 工作参数、最近回测等
     created_at: datetime = Field(default_factory=now)
@@ -174,6 +188,7 @@ def _migrate(eng) -> None:
             ("llmprovider", "owner_id", "INTEGER", True), ("user", "quota_daily", "INTEGER", False),
             ("user", "allow_platform", "BOOLEAN NOT NULL DEFAULT 1", False),
             ("user", "allow_own", "BOOLEAN NOT NULL DEFAULT 1", False), ("classroom", "quota_daily", "INTEGER", False),
+            ("chatsession", "assignment_id", "INTEGER", True),
         ):
             cols = {r[1] for r in con.exec_driver_sql(f'PRAGMA table_info("{table}")')}
             if cols and col not in cols:

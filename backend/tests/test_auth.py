@@ -28,8 +28,14 @@ def auth_on(monkeypatch):
     with Session(engine()) as s:  # 每个测试用干净的班级与设置，避免互相影响
         for row in s.exec(select(ClassRoom)).all():
             s.delete(row)
+        gone = [u.id for u in s.exec(select(User).where(User.role != "admin")).all()]
         for u in s.exec(select(User).where(User.role != "admin")).all():  # 测试中注册的学生和老师
             s.delete(u)
+        from api.db import Assignment
+        for row in s.exec(select(ChatSession).where(ChatSession.user_id.in_(gone or [-1]))).all():  # 防止 id 复用后串号
+            s.delete(row)
+        for row in s.exec(select(Assignment)).all():
+            s.delete(row)
         from api.db import DerivedStrategy, InviteCode, ModelUsage
         for row in s.exec(select(DerivedStrategy).where(DerivedStrategy.user_id != None)).all():  # noqa: E711
             s.delete(row)

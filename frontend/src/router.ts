@@ -14,6 +14,7 @@ export const router = createRouter({
     { path: '/portfolio', name: 'portfolio', component: () => import('./views/PortfolioView.vue'), meta: { title: '组合实验室' } },
     { path: '/history', name: 'history', component: () => import('./views/HistoryView.vue'), meta: { title: '回测记录' } },
     { path: '/report/:id', name: 'report', component: () => import('./views/ReportView.vue'), meta: { title: '回测报告' } },
+    { path: '/assignments', name: 'assignments', component: () => import('./views/AssignmentsView.vue'), meta: { title: '作业' } },
     { path: '/settings', name: 'settings', component: () => import('./views/SettingsView.vue'), meta: { title: '设置' } },
   ],
 })

@@ -227,13 +227,19 @@ async def run_turn(session_id: str | None, user_text: str, model: ModelRef | Non
                    control: dict[str, Any] | None = None) -> AsyncIterator[dict[str, Any]]:
     import uuid
 
-    ctl = Control.parse(control)
+    from api import assignments
     cs = get_or_create_session(session_id)
+    homework = assignments.for_session(cs.id)
+    # 作业对话一律按老师锁定的设置工作，学生自己的控制设置不起作用
+    ctl = Control.parse(homework["control"] if homework else control)
     _expire_pending(cs.id)
     state = SessionState.load(cs.state_json)
     yield {"type": "session", "session_id": cs.id}
 
     sys = system_prompt(state) + ctl.prompt()
+    if homework:
+        sys += (f"\n\n# 老师布置的作业\n这是作业「{homework['title']}」的对话。作业要求：\n{homework['task'] or '（老师未填写详细要求）'}\n"
+                "请围绕作业要求帮助学生完成实验；讲清每一步的原理，结论部分鼓励学生用自己的话总结，不要越过作业限定的策略和工具。")
     messages: list[dict] = [{"role": "system", "content": sys}, *_history(cs.id)]
     if wants_investment_advice(user_text):
         messages.append({"role": "system", "content":

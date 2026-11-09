@@ -307,7 +307,8 @@ class Toolbox:
         changed = {k: {"default": defaults.get(k), "used": v} for k, v in merged.items() if defaults.get(k) != v}
         return summarize_payload(payload, changed), {"kind": "backtest", "result_id": payload["id"],
                                                      "title": payload["title"], "metrics": _card_metrics(payload),
-                                                     "period": f"{cfg['start']} ~ {cfg['end']}"}
+                                                     "period": f"{cfg['start']} ~ {cfg['end']}",
+                                                     "changed": {k: v["used"] for k, v in changed.items()}}
 
     def t_run_portfolio_backtest(self, components: list[dict[str, Any]], start: str, end: str,
                                  rebalance: str = "M"):

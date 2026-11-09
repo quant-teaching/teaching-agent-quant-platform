@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookOpen, ChevronsUpDown, GraduationCap, FlaskConical, History, KeyRound, Layers, LogOut, MessageSquareText, Moon, Settings2, Sun, UserRound } from 'lucide-vue-next'
+import { BookOpen, ChevronsUpDown, ClipboardList, GraduationCap, FlaskConical, History, KeyRound, Layers, LogOut, MessageSquareText, Moon, Settings2, Sun, UserRound } from 'lucide-vue-next'
 import { NButton, NDropdown, NForm, NFormItem, NInput, NModal, NTooltip, useMessage } from 'naive-ui'
 import { computed, h, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -42,20 +42,23 @@ async function changePassword() {
   }
 }
 
-const items = [
+const allItems = [
   { to: '/chat', name: 'chat', label: '智能助手', icon: MessageSquareText, tone: 'blue' },
   { to: '/learn', name: 'learn', label: '新手教程', icon: GraduationCap, tone: 'amber', badge: '入门' },
   { to: '/library', name: 'library', label: '算法库', icon: BookOpen, also: ['strategy'], tone: 'violet' },
   { to: '/backtest', name: 'backtest', label: '回测实验室', icon: FlaskConical, tone: 'teal' },
   { to: '/portfolio', name: 'portfolio', label: '组合实验室', icon: Layers, tone: 'green' },
   { to: '/history', name: 'history', label: '回测记录', icon: History, also: ['report'], tone: 'rose' },
+  { to: '/assignments', name: 'assignments', label: '作业', icon: ClipboardList, tone: 'amber', needsAuth: true },
 ]
+// 作业需要开启登录（区分老师和学生）
+const items = computed(() => allItems.filter((it) => !(it as any).needsAuth || auth.enabled))
 
-function active(it: (typeof items)[number]) {
+function active(it: (typeof allItems)[number]) {
   return route.name === it.name || (it.also ?? []).includes(route.name as string)
 }
 // 选中项背后的高亮块随路由滑动
-const activeIndex = computed(() => items.findIndex(active))
+const activeIndex = computed(() => items.value.findIndex(active))
 </script>
 
 <template>

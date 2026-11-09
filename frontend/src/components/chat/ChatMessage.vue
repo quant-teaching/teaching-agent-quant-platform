@@ -5,6 +5,7 @@ import { computed, ref } from 'vue'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import ApprovalCard from './ApprovalCard.vue'
 import PhaseCard from './PhaseCard.vue'
+import ResearchTrail from './ResearchTrail.vue'
 import ToolCard from './ToolCard.vue'
 import type { ApprovalBlock, PhaseBlock, PlanBlock, ToolBlock, UiMessage } from './types'
 
@@ -34,6 +35,7 @@ const groups = computed(() => {
 function hasCard(t: ToolBlock) {
   return !!t.card
 }
+const isResearch = computed(() => props.msg.blocks.some((b) => b.kind === 'phase' && b.name === 'research_plan'))
 const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length || props.msg.blocks[props.msg.blocks.length - 1].kind !== 'text'))
 </script>
 
@@ -68,6 +70,8 @@ const thinking = computed(() => props.msg.streaming && (!props.msg.blocks.length
         <ApprovalCard v-else-if="g.type === 'approval'" :block="g.block" :busy="busy" @decide="emit('decide', g.block, $event)" />
         <MarkdownView v-else breaks :source="g.text + (msg.streaming && g.last ? ' ▍' : '')" class="text" />
       </template>
+
+      <ResearchTrail v-if="isResearch && !msg.streaming" :blocks="msg.blocks" @open="emit('open', $event)" />
 
       <div v-if="thinking" class="thinking"><span /><span /><span /><em v-if="msg.status">{{ msg.status }}</em></div>
 

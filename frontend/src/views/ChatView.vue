@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BookOpen, ChartLine, Layers, MessageSquarePlus, PanelLeft, PanelRightClose, Pencil, Send, Square, Trash2, Wand2, ArrowUpRight, GraduationCap, Shuffle } from 'lucide-vue-next'
+import { BookOpen, ChartLine, ClipboardList, FileDown, Lock, Layers, MessageSquarePlus, PanelLeft, PanelRightClose, Pencil, Send, Square, Trash2, Wand2, ArrowUpRight, GraduationCap, Shuffle } from 'lucide-vue-next'
 import { NButton, NInput, NPopconfirm, NSpin, NTooltip, useMessage } from 'naive-ui'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -8,9 +8,10 @@ import { api, getBacktest, type BacktestPayload } from '@/api/client'
 import AgentControlPicker from '@/components/chat/AgentControlPicker.vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
+import { fromServer } from '@/components/chat/convert'
 import { DISCLAIMER, type ApprovalBlock, type Block, type UiMessage } from '@/components/chat/types'
 import BacktestReport from '@/components/report/BacktestReport.vue'
-import { useAgentControl } from '@/stores/agentControl'
+import { MODES, useAgentControl } from '@/stores/agentControl'
 import { useCatalog } from '@/stores/catalog'
 import { timeAgo } from '@/utils/format'
 
@@ -29,6 +30,7 @@ const loadingSession = ref(false)
 const showSessions = ref(typeof window === 'undefined' || window.innerWidth > 900)
 const scroller = ref<HTMLElement | null>(null)
 const chatModel = ref<ModelRef | null>(null)
+const assignment = ref<any>(null) // 当前对话绑定的作业（智能体设置由老师锁定）
 let abort: AbortController | null = null
 
 // 右侧报告面板
@@ -49,32 +51,11 @@ async function loadSessions() {
   sessions.value = await api.get('/api/chat/sessions')
 }
 
-function fromServer(m: any, pendingId: number | null = null): UiMessage {
-  if (m.role === 'user') return { key: `u${m.id}`, role: 'user', text: m.content, blocks: [], switches: [] }
-  const blocks: Block[] = []
-  const switches: UiMessage['switches'] = []
-  let factCheck = null
-  for (const e of m.events as any[]) {
-    if (e.kind === 'tool') blocks.push({ kind: 'tool', id: e.id, name: e.name, label: e.label, status: e.ok ? 'ok' : 'error', error: e.error, card: e.card })
-    else if (e.kind === 'phase' || e.kind === 'plan') blocks.push(e)
-    else if (e.kind === 'approval') {
-      // 只有服务器上仍在等待的那一步可以继续确认，其余的视为失效
-      const status = e.status === 'pending' && pendingId !== m.id ? 'expired' : e.status
-      blocks.push({ ...e, status })
-    } else if (e.kind === 'fact_check') factCheck = e
-    else if (e.kind === 'model_switch') switches.push({ from: e.from, to: e.to, reason: e.reason })
-  }
-  let text: string = m.content
-  const disclaimer = text.trimEnd().endsWith(DISCLAIMER)
-  if (disclaimer) text = text.trimEnd().slice(0, -DISCLAIMER.length)
-  blocks.push({ kind: 'text', text })
-  return { key: `a${m.id}`, role: 'assistant', blocks, switches, factCheck, disclaimer, model: m.model }
-}
-
 async function openSession(id: string | null) {
   abort?.abort()
   sessionId.value = id
   messages.value = []
+  assignment.value = null
   panelId.value = null
   if (window.innerWidth <= 900) showSessions.value = false
   if (!id) return
@@ -82,6 +63,7 @@ async function openSession(id: string | null) {
   try {
     const s = await api.get<any>(`/api/chat/sessions/${id}`)
     messages.value = s.messages.map((m: any) => fromServer(m, s.pending?.message_id ?? null))
+    assignment.value = s.assignment ?? null
     await scrollToEnd(true)
   } catch (e: any) {
     toast.error(e.message)
@@ -322,7 +304,17 @@ onMounted(async () => {
       <header class="conv-head">
         <NTooltip><template #trigger><button class="ghost" @click="showSessions = !showSessions"><PanelLeft :size="17" /></button></template>{{ showSessions ? '收起会话列表' : '展开会话列表' }}</NTooltip>
         <div class="conv-title">{{ sessions.find((s) => s.id === sessionId)?.title ?? '新对话' }}</div>
+        <NTooltip v-if="sessionId && messages.length"><template #trigger>
+          <a class="report-btn" :href="`/api/chat/sessions/${sessionId}/report`" download><FileDown :size="15" /> 实验报告</a>
+        </template>把这次对话整理成 Word 实验报告：提问、操作步骤、回测指标、分析，末尾留出"我的结论"由你填写</NTooltip>
       </header>
+      <div v-if="assignment" class="hw">
+        <ClipboardList :size="16" class="hw-ic" />
+        <div class="hw-body">
+          <b>作业：{{ assignment.title }}</b><span v-if="assignment.due" class="hw-due">截止 {{ assignment.due }}</span>
+          <p v-if="assignment.task">{{ assignment.task }}</p>
+        </div>
+      </div>
 
       <div ref="scroller" class="scroll">
         <div class="inner">
@@ -350,7 +342,8 @@ onMounted(async () => {
             v-model:value="input" type="textarea" :autosize="{ minRows: 1, maxRows: 7 }" :bordered="false"
             :placeholder="placeholder" @keydown="onKey"
           />
-          <span class="picker"><AgentControlPicker /></span>
+          <span v-if="assignment" class="picker"><span class="locked" title="作业对话：智能体的工作模式、工具和策略范围由老师锁定"><Lock :size="13" /> {{ MODES.find((m) => m.key === assignment.control?.mode)?.label ?? '作业模式' }}</span></span>
+          <span v-else class="picker"><AgentControlPicker /></span>
           <span class="picker"><ModelPicker v-model="chatModel" /></span>
           <NButton v-if="busy" circle secondary type="error" @click="stop"><template #icon><Square :size="14" /></template></NButton>
           <NButton v-else circle type="primary" :disabled="!input.trim()" @click="send()"><template #icon><Send :size="15" /></template></NButton>
@@ -396,6 +389,14 @@ onMounted(async () => {
 .ghost { border: none; background: none; color: var(--text-2); cursor: pointer; padding: 6px; border-radius: 7px; display: grid; }
 .ghost:hover { background: var(--surface-3); color: var(--text-1); }
 .scroll { flex: 1; overflow-y: auto; }
+.report-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--primary-ink); background: var(--primary-soft); white-space: nowrap; transition: transform 0.2s var(--ease-out); }
+.report-btn:hover { transform: translateY(-1px); }
+.hw { display: flex; gap: 10px; padding: 10px 18px; background: var(--t-amber-soft); border-bottom: 1px solid color-mix(in srgb, var(--t-amber) 30%, var(--border)); font-size: 13px; }
+.hw-ic { color: var(--t-amber); flex-shrink: 0; margin-top: 2px; }
+.hw-body { min-width: 0; }
+.hw-body p { margin: 2px 0 0; color: var(--text-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hw-due { margin-left: 10px; font-size: 12px; color: var(--text-3); }
+.locked { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--t-amber); background: var(--t-amber-soft); cursor: help; }
 .inner { max-width: 860px; margin: 0 auto; padding: 8px 24px 24px; }
 .loading { display: flex; justify-content: center; padding: 40px; }
 

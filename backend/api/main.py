@@ -789,6 +789,56 @@ def research_robustness(body: RobustnessIn):
                                body.x_values, body.y_key, body.y_values, body.split, body.metric)
 
 
+class AssignmentIn(BaseModel):
+    title: str = Field(min_length=1, max_length=60)
+    task: str = Field("", max_length=4000)
+    control: dict[str, Any] | None = None
+    due: str | None = None
+
+
+@app.get("/api/assignments")
+def assignments_list():
+    from api import assignments
+    return assignments.list_mine()
+
+
+@app.post("/api/classes/{cid}/assignments")
+def assignment_create(cid: int, body: AssignmentIn):
+    from api import assignments
+    return assignments.create(cid, body.model_dump())
+
+
+@app.put("/api/assignments/{aid}")
+def assignment_update(aid: int, body: AssignmentIn):
+    from api import assignments
+    return assignments.update(aid, body.model_dump())
+
+
+@app.delete("/api/assignments/{aid}")
+def assignment_delete(aid: int):
+    from api import assignments
+    assignments.delete(aid)
+    return {"ok": True}
+
+
+@app.get("/api/assignments/{aid}")
+def assignment_detail(aid: int):
+    from api import assignments
+    return assignments.detail(aid)
+
+
+@app.post("/api/assignments/{aid}/start")
+def assignment_start(aid: int):
+    from api import assignments
+    return assignments.start(aid)
+
+
+@app.get("/api/assignments/{aid}/sessions/{sid}")
+def assignment_student_session(aid: int, sid: str):
+    from api import assignments
+    return assignments.student_session(aid, sid)
+
+
 @app.get("/api/agent/meta")
 def agent_meta():
     """智能体控制面板用：工作模式、全部工具（名称、说明、参数结构）、默认设置。"""
@@ -811,12 +861,24 @@ async def chat_resume(body: ResumeIn):
     return EventSourceResponse(gen(), ping=15)
 
 
+@app.get("/api/chat/sessions/{sid}/report")
+def chat_session_report(sid: str):
+    """一键生成实验报告（Word）。"""
+    from api import report_doc
+    name, data = report_doc.build(sid)
+    disposition = f"attachment; filename=\"report-{sid}.docx\"; filename*=UTF-8''{quote(name)}"
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": disposition})
+
+
 @app.get("/api/chat/sessions/{sid}")
 def chat_session(sid: str):
     with Session(engine()) as s:
         cs = _own_session(s, sid)
         msgs = s.exec(select(ChatMessage).where(ChatMessage.session_id == sid).order_by(ChatMessage.id)).all()
+    from api import assignments
     return {"id": cs.id, "title": cs.title, "state": json.loads(cs.state_json or "{}"), "pending": pending_info(sid),
+            "assignment": assignments.for_session(sid),
             "messages": [{"id": m.id, "role": m.role, "content": m.content, "events": json.loads(m.events_json),
                           "model": m.model, "created_at": m.created_at.isoformat()} for m in msgs]}
 
