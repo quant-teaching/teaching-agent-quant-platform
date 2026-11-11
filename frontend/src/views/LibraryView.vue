@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { Activity, ArrowLeftRight, BarChart3, BookOpen, Boxes, ChartLine, Coins, Gauge, Layers, Library, RefreshCw, Repeat, Rocket, Scale, Search, ShieldCheck, SlidersHorizontal, Sparkles, Timer, TrendingUp, Wheat, Zap } from 'lucide-vue-next'
-import { NInput, NRadioButton, NRadioGroup, NSpin } from 'naive-ui'
+import { NRadioButton, NRadioGroup, NSpin } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
 import CountUp from '@/components/common/CountUp.vue'
+import HighlightText from '@/components/common/HighlightText.vue'
+import SearchBox from '@/components/common/SearchBox.vue'
 import PageHero from '@/components/common/PageHero.vue'
 import { useCatalog } from '@/stores/catalog'
 import { universeLabel } from '@/utils/format'
+import { matchAll, terms } from '@/utils/search'
 
 const catalog = useCatalog()
 const loading = ref(true)
@@ -18,15 +21,27 @@ onMounted(async () => {
   loading.value = false
 })
 
+// 搜索范围：名称、风格、简介、编号、别名，以及参数名和参数说明；多个关键词用空格分开，需全部命中
+const haystack = (s: (typeof catalog.strategies)[number]) =>
+  [s.name, s.style, s.summary, s.id, ...s.aliases, ...s.params.flatMap((p) => [p.title, p.key, p.description])].join(' ')
+/** 关键词只出现在参数里时，返回命中的参数名，卡片上提示"参数命中" */
+function paramHits(s: (typeof catalog.strategies)[number]) {
+  const ts = terms(q.value)
+  if (!ts.length || matchAll([s.name, s.style, s.summary, s.id, ...s.aliases].join(' '), ts)) return []
+  return s.params.filter((p) => ts.some((k) => `${p.title} ${p.key} ${p.description}`.toLowerCase().includes(k))).map((p) => p.title)
+}
+const SUGGEST = ['趋势', '均值回归', '动量', '套利', 'MACD', 'ATR', '布林带', '波动率']
+const searchBox = ref<InstanceType<typeof SearchBox> | null>(null)
+function resetFilters() { q.value = ''; group.value = 'all'; cat.value = 'all' }
+
 const list = computed(() => {
-  const k = q.value.trim().toLowerCase()
+  const ts = terms(q.value)
   return catalog.strategies.filter((s) => {
     if (cat.value === 'derived' && !s.derived) return false
     if (cat.value === 'stock' && (s.category !== 'stock' || s.derived)) return false
     if (cat.value === 'futures' && (s.category !== 'futures' || s.derived)) return false
     if (group.value !== 'all' && styleGroup(s.style) !== group.value) return false
-    if (!k) return true
-    return [s.name, s.style, s.summary, s.id, ...s.aliases].some((x) => x.toLowerCase().includes(k))
+    return !ts.length || matchAll(haystack(s), ts)
   })
 })
 const counts = computed(() => ({
@@ -82,9 +97,7 @@ const groupCounts = computed(() => {
         <NRadioButton value="futures">期货 {{ counts.futures }}</NRadioButton>
         <NRadioButton value="derived">我的衍生策略 {{ counts.derived }}</NRadioButton>
       </NRadioGroup>
-      <NInput v-model:value="q" placeholder="搜索名称、风格或别名，如 趋势、均值回归、MACD" clearable style="max-width: 340px">
-        <template #prefix><Search :size="15" /></template>
-      </NInput>
+      <SearchBox ref="searchBox" v-model="q" hotkey class="lib-search" placeholder="搜索名称、风格、别名或参数，如 趋势、MACD、ATR" :count="q.trim() ? list.length : null" />
     </div>
 
     <div class="chips">
@@ -104,15 +117,23 @@ const groupCounts = computed(() => {
             <span class="style">{{ s.style }}</span>
             <span v-if="s.derived" class="derived"><Sparkles :size="12" /> 衍生</span>
           </div>
-          <h3>{{ s.name }}</h3>
-          <p>{{ s.summary }}</p>
+          <h3><HighlightText :text="s.name" :q="q" /></h3>
+          <p><HighlightText :text="s.summary" :q="q" /></p>
+          <div v-if="paramHits(s).length" class="phit"><SlidersHorizontal :size="12" /> 参数命中：<HighlightText :text="paramHits(s).join('、')" :q="q" /></div>
           <div class="foot">
             <span>{{ s.params.length }} 个参数</span>
             <span>默认标的：{{ universeLabel(s.default_universe) }}</span>
           </div>
         </RouterLink>
       </div>
-      <div v-if="!loading && !list.length" class="muted empty">没有符合条件的策略</div>
+      <div v-if="!loading && !list.length" class="empty">
+        <span class="empty-ic"><Search :size="22" /></span>
+        <div class="empty-t">{{ q.trim() ? `没有找到和「${q.trim()}」相关的策略` : '这个分类下还没有策略' }}</div>
+        <div class="empty-s">试试这些关键词：
+          <button v-for="w in SUGGEST" :key="w" class="sug" @click="q = w; group = 'all'; cat = 'all'">{{ w }}</button>
+        </div>
+        <button class="reset" @click="resetFilters">清除所有筛选</button>
+      </div>
     </NSpin>
   </div>
 </template>
@@ -161,5 +182,15 @@ h3 { transition: color 0.2s; }
 h3 { font-size: 16px; font-weight: 650; margin: 12px 0 4px; }
 p { font-size: 13px; color: var(--text-2); margin: 0 0 12px; line-height: 1.6; flex: 1; }
 .foot { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-3); padding-top: 10px; border-top: 1px solid var(--border); }
-.empty { text-align: center; padding: 40px; }
+.lib-search { flex: 1; max-width: 400px; }
+.phit { display: flex; align-items: center; gap: 4px; margin: -6px 0 10px; font-size: 12px; color: var(--primary-ink); }
+.empty { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 48px 16px; animation: rise 0.4s var(--ease-out) both; }
+.empty-ic { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary-ink); animation: float 3s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-5px) rotate(-6deg); } }
+.empty-t { font-size: 15px; font-weight: 600; color: var(--text-1); }
+.empty-s { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-3); }
+.sug { border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; transition: all 0.2s var(--ease-out); }
+.sug:hover { color: var(--primary-ink); border-color: var(--primary); transform: translateY(-2px); }
+.reset { border: none; background: none; color: var(--primary-ink); cursor: pointer; font-size: 12.5px; }
+.reset:hover { text-decoration: underline; }
 </style>

@@ -1,4 +1,4 @@
-// 流式对话：POST /api/chat、/api/chat/resume，读取 SSE 事件流
+// 流式对话：POST /api/chat、/api/chat/resume，GET 重新订阅进行中的回答，读取 SSE 事件流
 import { handleUnauthorized } from './client'
 
 /** 指定对话使用的模型；null 表示自动（按模型设置里的主备顺序） */
@@ -20,12 +20,9 @@ export interface AgentControl {
 }
 
 async function readSse(url: string, body: unknown, onEvent: (e: ChatEvent) => void, signal?: AbortSignal) {
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify(body),
-    signal,
-  })
+  const resp = await fetch(url, body === undefined
+    ? { headers: { Accept: 'text/event-stream' }, signal }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' }, body: JSON.stringify(body), signal })
   if (resp.status === 401) handleUnauthorized(url)
   if (!resp.ok || !resp.body) {
     let detail = `请求失败（${resp.status}）`
@@ -78,4 +75,9 @@ export function resumeChat(
   model: ModelRef | null = null,
 ): Promise<void> {
   return readSse('/api/chat/resume', { session_id: sessionId, decision, model }, onEvent, signal)
+}
+
+/** 重新订阅正在生成的回答（离开页面后回来）：服务端从头回放事件并继续推送 */
+export function followChat(sessionId: string, onEvent: (e: ChatEvent) => void, signal?: AbortSignal): Promise<void> {
+  return readSse(`/api/chat/sessions/${sessionId}/live`, undefined, onEvent, signal)
 }

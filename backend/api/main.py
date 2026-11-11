@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import re
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 from urllib.parse import quote
@@ -16,17 +17,18 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import or_
 from sqlmodel import Session, select
 from sse_starlette.sse import EventSourceResponse
 
 from agent import knowledge, llm
-from agent.agent import pending_info, resume_turn, run_turn
+from agent.agent import pending_info, resume_turn, run_turn, save_stopped
 from quant.data.loader import DataError
 from quant.engine.config import BacktestConfig
 from quant.paths import ROOT_DIR
 from quant.strategies.base import ParamError
 
-from . import accounts, auth, instance, quota, services
+from . import accounts, auth, chat_runs, instance, quota, services
 from .db import ChatMessage, ChatSession, User, engine
 from .export import export_zip
 from .serialize import clean
@@ -733,9 +735,23 @@ class ResumeIn(BaseModel):
     model: llm.ModelRef | None = None
 
 
+def _follow(run: chat_runs.Run) -> EventSourceResponse:
+    """把后台生成的事件转成 SSE。浏览器断开只是停止接收，生成本身继续。"""
+    async def gen():
+        async for ev in run.follow():
+            yield {"data": json.dumps(clean(ev), ensure_ascii=False, default=str)}
+    return EventSourceResponse(gen(), ping=15)
+
+
+def _start_run(events) -> EventSourceResponse:
+    return _follow(chat_runs.start(events, lambda r: save_stopped(r.sid, r.message_id, r.text())))
+
+
 @app.post("/api/chat")
 async def chat(body: ChatIn):
     user = auth.current_user.get()
+    if chat_runs.running(body.session_id):
+        raise HTTPException(409, "上一条回答还在生成中，请等它完成或先停止")
     if user is not None:
         # 使用平台渠道时按每日额度计次；只用自己的渠道不计次。模型不可用等问题交给对话流程提示
         try:
@@ -745,10 +761,7 @@ async def chat(body: ChatIn):
         if llm.uses_platform(chain):
             quota.consume(user)
 
-    async def gen():
-        async for ev in run_turn(body.session_id, body.message.strip(), body.model, user, body.control):
-            yield {"data": json.dumps(clean(ev), ensure_ascii=False, default=str)}
-    return EventSourceResponse(gen(), ping=15)
+    return _start_run(run_turn(body.session_id, body.message.strip(), body.model, user, body.control))
 
 
 def _own_session(s: Session, sid: str) -> ChatSession:
@@ -758,14 +771,61 @@ def _own_session(s: Session, sid: str) -> ChatSession:
     return cs
 
 
+def _snippet(text: str, kw: str, before: int = 16, after: int = 44) -> str:
+    """取关键词附近的一小段文字（去掉 Markdown 符号），用于搜索结果展示。"""
+    t = re.sub(r"[#*`>|_~\[\]]+", "", text)
+    t = re.sub(r"\s+", " ", t).strip()
+    i = t.lower().find(kw.lower())
+    if i < 0:
+        return t[: before + after] + ("…" if len(t) > before + after else "")
+    a, b = max(0, i - before), min(len(t), i + len(kw) + after)
+    return ("…" if a else "") + t[a:b] + ("…" if b < len(t) else "")
+
+
 @app.get("/api/chat/sessions")
-def chat_sessions():
+def chat_sessions(q: str | None = Query(None, max_length=60)):
+    """对话列表；带 q 时按标题和对话内容搜索，返回命中片段。"""
+    kw = (q or "").strip()
     with Session(engine()) as s:
-        q = select(ChatSession).order_by(ChatSession.updated_at.desc()).limit(100)
+        base = select(ChatSession).order_by(ChatSession.updated_at.desc())
         if auth.enabled():
-            q = q.where(ChatSession.user_id == auth.current_user_id())
-        rows = s.exec(q).all()
-    return [{"id": r.id, "title": r.title, "updated_at": r.updated_at.isoformat()} for r in rows]
+            base = base.where(ChatSession.user_id == auth.current_user_id())
+        if not kw:
+            rows = s.exec(base.limit(200)).all()
+            return [{"id": r.id, "title": r.title, "updated_at": r.updated_at.isoformat()} for r in rows]
+        like = "%" + kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        hit = select(ChatMessage.session_id).where(ChatMessage.content.like(like, escape="\\"))
+        rows = s.exec(base.where(or_(ChatSession.title.like(like, escape="\\"), ChatSession.id.in_(hit))).limit(60)).all()
+        out = []
+        for r in rows:
+            msgs = s.exec(select(ChatMessage).where(ChatMessage.session_id == r.id, ChatMessage.content.like(like, escape="\\"))
+                          .order_by(ChatMessage.id)).all()
+            first = msgs[0] if msgs else None
+            out.append({"id": r.id, "title": r.title, "updated_at": r.updated_at.isoformat(), "hits": len(msgs),
+                        "snippet": _snippet(first.content, kw) if first else None, "snippet_role": first.role if first else None})
+        return out
+
+
+class SessionIdsIn(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=500)
+
+
+@app.post("/api/chat/sessions/batch-delete")
+async def delete_sessions(body: SessionIdsIn):
+    """批量删除对话（只删自己的）。"""
+    n = 0
+    with Session(engine()) as s:
+        for sid in dict.fromkeys(body.ids):
+            cs = s.get(ChatSession, sid)
+            if not cs or (auth.enabled() and cs.user_id != auth.current_user_id()):
+                continue
+            chat_runs.stop(sid)
+            for m in s.exec(select(ChatMessage).where(ChatMessage.session_id == sid)).all():
+                s.delete(m)
+            s.delete(cs)
+            n += 1
+        s.commit()
+    return {"deleted": n}
 
 
 class RobustnessIn(BaseModel):
@@ -854,11 +914,27 @@ def agent_meta():
 async def chat_resume(body: ResumeIn):
     """学生确认工具调用或计划后继续执行（同一轮对话，不另计额度）。"""
     user = auth.current_user.get()
+    if chat_runs.running(body.session_id):
+        raise HTTPException(409, "上一条回答还在生成中，请等它完成或先停止")
+    return _start_run(resume_turn(body.session_id, body.decision, body.model, user))
 
-    async def gen():
-        async for ev in resume_turn(body.session_id, body.decision, body.model, user):
-            yield {"data": json.dumps(clean(ev), ensure_ascii=False, default=str)}
-    return EventSourceResponse(gen(), ping=15)
+
+@app.get("/api/chat/sessions/{sid}/live")
+async def chat_live(sid: str):
+    """重新订阅正在生成（或刚结束）的回答：从头回放事件并继续接收。"""
+    with Session(engine()) as s:
+        _own_session(s, sid)
+    run = chat_runs.RUNS.get(sid)
+    if not run:
+        raise services.NotFound("这个对话没有正在生成的回答")
+    return _follow(run)
+
+
+@app.post("/api/chat/sessions/{sid}/stop")
+async def chat_stop(sid: str):
+    with Session(engine()) as s:
+        _own_session(s, sid)
+    return {"stopped": chat_runs.stop(sid)}
 
 
 @app.get("/api/chat/sessions/{sid}/report")
@@ -877,7 +953,7 @@ def chat_session(sid: str):
         cs = _own_session(s, sid)
         msgs = s.exec(select(ChatMessage).where(ChatMessage.session_id == sid).order_by(ChatMessage.id)).all()
     from api import assignments
-    return {"id": cs.id, "title": cs.title, "state": json.loads(cs.state_json or "{}"), "pending": pending_info(sid),
+    return {"id": cs.id, "title": cs.title, "state": json.loads(cs.state_json or "{}"), "pending": pending_info(sid), "running": chat_runs.running(sid),
             "assignment": assignments.for_session(sid),
             "messages": [{"id": m.id, "role": m.role, "content": m.content, "events": json.loads(m.events_json),
                           "model": m.model, "created_at": m.created_at.isoformat()} for m in msgs]}
@@ -898,9 +974,10 @@ def rename_session(sid: str, body: RenameIn):
 
 
 @app.delete("/api/chat/sessions/{sid}")
-def delete_session(sid: str):
+async def delete_session(sid: str):
     with Session(engine()) as s:
         _own_session(s, sid)
+        chat_runs.stop(sid)  # 正在生成的回答一并停止
         for m in s.exec(select(ChatMessage).where(ChatMessage.session_id == sid)).all():
             s.delete(m)
         cs = s.get(ChatSession, sid)

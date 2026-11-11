@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { BookOpen, ChartLine, ClipboardList, FileDown, Lock, Layers, MessageSquarePlus, PanelLeft, PanelRightClose, Pencil, Send, Square, Trash2, Wand2, ArrowUpRight, GraduationCap, Shuffle } from 'lucide-vue-next'
-import { NButton, NInput, NPopconfirm, NSpin, NTooltip, useMessage } from 'naive-ui'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { BookOpen, ChartLine, ClipboardList, FileDown, Lock, Layers, PanelLeft, PanelRightClose, Send, Square, Wand2, ArrowUpRight, GraduationCap, Shuffle } from 'lucide-vue-next'
+import { NButton, NInput, NSpin, NTooltip, useMessage } from 'naive-ui'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { resumeChat, streamChat, type ChatEvent, type ModelRef } from '@/api/chat'
+import { followChat, resumeChat, streamChat, type ChatEvent, type ModelRef } from '@/api/chat'
 import { api, getBacktest, type BacktestPayload } from '@/api/client'
 import AgentControlPicker from '@/components/chat/AgentControlPicker.vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
+import MessageNav from '@/components/chat/MessageNav.vue'
+import SessionList from '@/components/chat/SessionList.vue'
 import ModelPicker from '@/components/chat/ModelPicker.vue'
 import { fromServer } from '@/components/chat/convert'
 import { DISCLAIMER, type ApprovalBlock, type Block, type UiMessage } from '@/components/chat/types'
 import BacktestReport from '@/components/report/BacktestReport.vue'
 import { MODES, useAgentControl } from '@/stores/agentControl'
 import { useCatalog } from '@/stores/catalog'
-import { timeAgo } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -62,9 +63,19 @@ async function openSession(id: string | null) {
   loadingSession.value = true
   try {
     const s = await api.get<any>(`/api/chat/sessions/${id}`)
+    if (sessionId.value !== id) return // 加载期间又切换了对话
     messages.value = s.messages.map((m: any) => fromServer(m, s.pending?.message_id ?? null))
     assignment.value = s.assignment ?? null
     await scrollToEnd(true)
+    locate()
+    // 回答还在生成（之前离开了页面）：接上服务端的事件流继续显示
+    const raw = s.messages[s.messages.length - 1]
+    if (s.running && raw?.role === 'assistant') {
+      const msg = messages.value[messages.value.length - 1]
+      if (!raw.events.length) msg.blocks = [] // 新一轮的占位回答，由回放的事件重新生成
+      loadingSession.value = false
+      runStream(msg, (onEvent, signal) => followChat(id, onEvent, signal))
+    }
   } catch (e: any) {
     toast.error(e.message)
     router.replace('/chat')
@@ -72,6 +83,15 @@ async function openSession(id: string | null) {
     loadingSession.value = false
   }
 }
+
+// 记住当前对话：从其他页面回到「智能助手」时回到这个对话，而不是新开一个
+const LAST_KEY = 'chat-last'
+watch(sessionId, (id) => {
+  try {
+    if (id) sessionStorage.setItem(LAST_KEY, id)
+    else sessionStorage.removeItem(LAST_KEY)
+  } catch { /* 不可用时忽略 */ }
+})
 
 watch(() => route.params.sessionId, (id) => {
   const v = (id as string) || null
@@ -169,8 +189,8 @@ async function runStream(msg: UiMessage, start: (onEvent: (e: ChatEvent) => void
   try {
     await start(eventHandler(msg), abort.signal)
   } catch (e: any) {
+    // 主动断开（离开页面、切换对话）只是不再接收，服务端会继续生成并保存
     if (e.name !== 'AbortError') msg.error = e.message || '连接中断'
-    else msg.error = '已停止生成'
   } finally {
     msg.streaming = false
     msg.status = ''
@@ -206,8 +226,14 @@ async function decide(msg: UiMessage, block: ApprovalBlock, decision: Record<str
   if (block.status === 'submitting') block.status = msg.error ? 'expired' : 'done'
 }
 
-function stop() {
-  abort?.abort()
+/** 停止生成：通知服务端停止（已生成的部分会保存），事件流随后自然结束 */
+async function stop() {
+  if (!sessionId.value) return abort?.abort()
+  try {
+    await api.post(`/api/chat/sessions/${sessionId.value}/stop`, {})
+  } catch {
+    abort?.abort()
+  }
 }
 
 function onKey(e: KeyboardEvent) {
@@ -235,18 +261,31 @@ function newChat() {
   openSession(null)
 }
 
-const renaming = ref<string | null>(null)
-const renameText = ref('')
-async function rename(id: string) {
-  if (!renameText.value.trim()) return (renaming.value = null)
-  await api.patch(`/api/chat/sessions/${id}`, { title: renameText.value.trim() })
-  renaming.value = null
+function onDeleted(ids: string[]) {
+  if (sessionId.value && ids.includes(sessionId.value)) newChat()
   loadSessions()
 }
-async function remove(id: string) {
-  await api.del(`/api/chat/sessions/${id}`)
-  if (id === sessionId.value) newChat()
-  loadSessions()
+
+// 从搜索结果打开对话：加载完成后滚动到第一处包含关键词的消息并高亮
+let findAfterLoad = ''
+function openFromList(id: string, q?: string) {
+  findAfterLoad = q ?? ''
+  if (id === sessionId.value) locate()
+  else router.push(`/chat/${id}`)
+}
+async function locate() {
+  const q = findAfterLoad.trim().toLowerCase()
+  findAfterLoad = ''
+  if (!q) return
+  await nextTick()
+  const sc = scroller.value
+  const el = [...(sc?.querySelectorAll<HTMLElement>('[data-mkey]') ?? [])].find((e) => e.textContent?.toLowerCase().includes(q))
+  if (!sc || !el) return
+  sc.scrollTo({ top: el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 16, behavior: 'smooth' })
+  el.classList.remove('find-flash')
+  void el.offsetWidth
+  el.classList.add('find-flash')
+  window.setTimeout(() => el.classList.remove('find-flash'), 2200)
 }
 
 const empty = computed(() => !messages.value.length && !loadingSession.value)
@@ -265,38 +304,21 @@ onMounted(async () => {
   catalog.load().catch(() => {})
   await loadSessions()
   if (sessionId.value) openSession(sessionId.value)
+  else if (!input.value) {
+    let last: string | null = null
+    try { last = sessionStorage.getItem(LAST_KEY) } catch { /* 忽略 */ }
+    if (last && sessions.value.some((x) => x.id === last)) router.replace(`/chat/${last}`)
+  }
 })
+
+onBeforeUnmount(() => abort?.abort())
 </script>
 
 <template>
   <div class="chat-page" :class="{ 'with-panel': panelId }">
     <!-- 会话列表 -->
     <aside v-show="showSessions" class="sessions">
-      <NButton block secondary type="primary" class="new" @click="newChat">
-        <template #icon><MessageSquarePlus :size="16" /></template>新对话
-      </NButton>
-      <div class="s-list">
-        <div v-if="!sessions.length" class="muted s-empty">还没有对话记录</div>
-        <div
-          v-for="s in sessions" :key="s.id" class="s-item" :class="{ active: s.id === sessionId }"
-          @click="s.id !== sessionId && router.push(`/chat/${s.id}`)"
-        >
-          <template v-if="renaming === s.id">
-            <NInput v-model:value="renameText" size="tiny" autofocus @keydown.enter="rename(s.id)" @blur="rename(s.id)" @click.stop />
-          </template>
-          <template v-else>
-            <div class="s-title">{{ s.title }}</div>
-            <div class="s-time">{{ timeAgo(s.updated_at) }}</div>
-            <div class="s-ops" @click.stop>
-              <button title="重命名" @click="renaming = s.id; renameText = s.title"><Pencil :size="13" /></button>
-              <NPopconfirm @positive-click="remove(s.id)">
-                <template #trigger><button title="删除"><Trash2 :size="13" /></button></template>
-                删除这个对话？
-              </NPopconfirm>
-            </div>
-          </template>
-        </div>
-      </div>
+      <SessionList :sessions="sessions" :current="sessionId" @new="newChat" @open="openFromList" @changed="loadSessions" @deleted="onDeleted" />
     </aside>
 
     <!-- 对话区 -->
@@ -316,6 +338,7 @@ onMounted(async () => {
         </div>
       </div>
 
+      <div class="scroll-wrap">
       <div ref="scroller" class="scroll">
         <div class="inner">
           <NSpin v-if="loadingSession" class="loading" />
@@ -332,8 +355,10 @@ onMounted(async () => {
               </button>
             </div>
           </div>
-          <ChatMessage v-for="m in messages" :key="m.key" :msg="m" :busy="busy" @open="openPanel" @decide="(b, d) => decide(m, b, d)" />
+          <ChatMessage v-for="m in messages" :key="m.key" :data-mkey="m.key" :msg="m" :busy="busy" @open="openPanel" @decide="(b, d) => decide(m, b, d)" />
         </div>
+      </div>
+      <MessageNav :messages="messages" :scroller="scroller" />
       </div>
 
       <footer class="composer-wrap">
@@ -370,25 +395,19 @@ onMounted(async () => {
 <style scoped>
 .chat-page { display: flex; height: 100%; }
 .sessions { width: 248px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--surface-2); display: flex; flex-direction: column; padding: 14px 10px; }
-.new { margin-bottom: 10px; }
-.s-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.s-empty { font-size: 12.5px; padding: 12px; text-align: center; }
-.s-item { position: relative; padding: 8px 10px; border-radius: 9px; cursor: pointer; transition: background 0.15s, box-shadow 0.2s; animation: rise 0.35s var(--ease-out) both; }
-.s-item:hover { background: var(--surface-3); }
-.s-item.active { background: var(--surface); box-shadow: var(--shadow-sm); }
-.s-title { font-size: 13px; color: var(--text-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-right: 40px; }
-.s-time { font-size: 11px; color: var(--text-3); }
-.s-ops { position: absolute; right: 6px; top: 9px; display: none; gap: 2px; }
-.s-item:hover .s-ops { display: flex; }
-.s-ops button { border: none; background: none; color: var(--text-3); cursor: pointer; padding: 3px; border-radius: 5px; display: grid; }
-.s-ops button:hover { color: var(--text-1); background: var(--surface); }
 
 .conv { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 .conv-head { height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .conv-title { font-weight: 600; font-size: 14.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
 .ghost { border: none; background: none; color: var(--text-2); cursor: pointer; padding: 6px; border-radius: 7px; display: grid; }
 .ghost:hover { background: var(--surface-3); color: var(--text-1); }
+.find-flash { animation: find-flash 2.2s var(--ease-out); border-radius: 14px; }
+@keyframes find-flash { 0%, 50% { background: color-mix(in srgb, #f5b301 14%, transparent); box-shadow: 0 0 0 8px color-mix(in srgb, #f5b301 14%, transparent); } 100% { background: transparent; box-shadow: 0 0 0 8px transparent; } }
+.scroll-wrap { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 .scroll { flex: 1; overflow-y: auto; }
+/* 从提问导航跳转过来时，提问气泡闪一下 */
+.nav-flash :deep(.bubble) { animation: nav-flash 1.4s var(--ease-out); }
+@keyframes nav-flash { 0%, 40% { box-shadow: 0 0 0 4px var(--primary-soft), 0 0 0 6px var(--primary); } 100% { box-shadow: 0 0 0 0 transparent; } }
 .report-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--primary-ink); background: var(--primary-soft); white-space: nowrap; transition: transform 0.2s var(--ease-out); }
 .report-btn:hover { transform: translateY(-1px); }
 .hw { display: flex; gap: 10px; padding: 10px 18px; background: var(--t-amber-soft); border-bottom: 1px solid color-mix(in srgb, var(--t-amber) 30%, var(--border)); font-size: 13px; }

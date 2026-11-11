@@ -234,7 +234,6 @@ async def run_turn(session_id: str | None, user_text: str, model: ModelRef | Non
     ctl = Control.parse(homework["control"] if homework else control)
     _expire_pending(cs.id)
     state = SessionState.load(cs.state_json)
-    yield {"type": "session", "session_id": cs.id}
 
     sys = system_prompt(state) + ctl.prompt()
     if homework:
@@ -253,7 +252,10 @@ async def run_turn(session_id: str | None, user_text: str, model: ModelRef | Non
             "messages": messages, "turn_msgs": [], "events": [], "sources": sources, "pending": [],
             "backtests": 0, "rounds": 0, "ran_backtest": False, "final": "", "model_used": None}
     thread = f"{cs.id}:{uuid.uuid4().hex[:8]}"
-    async for ev in _drive(init, thread, cs.id, user_text, None, model, user):
+    # 先把问题和一条占位回答写进数据库：生成途中离开页面再回来，对话也还在
+    mid = _begin(cs.id, user_text)
+    yield {"type": "session", "session_id": cs.id, "message_id": mid}
+    async for ev in _drive(init, thread, cs.id, user_text, mid, model, user):
         yield ev
 
 
@@ -262,7 +264,7 @@ async def resume_turn(session_id: str, decision: dict[str, Any], model: ModelRef
     """学生确认（工具调用或计划）后，从暂停处继续执行。"""
     cs = get_or_create_session(session_id)
     p = PENDING.get(cs.id) if cs.id == session_id else None
-    yield {"type": "session", "session_id": cs.id}
+    yield {"type": "session", "session_id": cs.id, "message_id": p["message_id"] if p else None}
     if not p:
         yield {"type": "error", "message": "这一步的确认已经失效（可能服务重启过，或你已发送了新消息），请重新发送你的问题。"}
         yield {"type": "done", "message_id": None, "content": ""}
@@ -341,6 +343,41 @@ def _save(sid: str, user_text: str, message_id: int | None, content: str, events
         s.commit()
         s.refresh(msg)
         return msg.id
+
+
+# 占位回答的内容：正常结束时会被覆盖；只有服务在生成途中重启才会留下这句话
+INTERRUPTED = "（回答未完成：生成过程中服务中断，请重新提问。）"
+
+
+def _begin(sid: str, user_text: str) -> int:
+    with Session(engine()) as s:
+        s.add(ChatMessage(session_id=sid, role="user", content=user_text))
+        msg = ChatMessage(session_id=sid, role="assistant", content=INTERRUPTED)
+        s.add(msg)
+        row = s.get(ChatSession, sid)
+        row.updated_at = now()
+        if row.title == "新对话":
+            row.title = _title_from(user_text)
+        s.add(row)
+        s.commit()
+        s.refresh(msg)
+        return msg.id
+
+
+def save_stopped(sid: str | None, message_id: int | None, text: str) -> None:
+    """学生点了停止：保存已经生成的部分。"""
+    if sid:
+        PENDING.pop(sid, None)
+    if not message_id:
+        return
+    with Session(engine()) as s:
+        msg = s.get(ChatMessage, message_id)
+        if not msg:
+            return
+        body = (text.strip() or ("" if msg.content == INTERRUPTED else msg.content)).rstrip()
+        msg.content = f"{body}\n\n（已停止生成）" if body else "（已停止生成）"
+        s.add(msg)
+        s.commit()
 
 
 def _expire_pending(sid: str) -> None:
